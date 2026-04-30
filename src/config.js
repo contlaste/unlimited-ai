@@ -4,7 +4,7 @@
 // =============================
 
 // 进页面要输入的聊天密码（前端会弹窗；Worker 也会校验）
-export const CHAT_PASSWORD = "123456";
+export const CHAT_PASSWORD = "114514";
 
 // 默认模型
 export const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro";
