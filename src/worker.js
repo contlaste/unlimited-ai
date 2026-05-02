@@ -1,4 +1,4 @@
-mport {
+import {
   DEFAULT_MODEL,
   MODELS,
   PROMPT_1,
