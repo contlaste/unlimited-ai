@@ -90,7 +90,7 @@ async function handleChat(request, env) {
     );
   }
 
-  const upstream = await fetch("https://api.cloudflare.com/client/v4/accounts/1244212086@qq.com/ai/run/@cf/meta/llama-3-8b-instruct", {
+  const upstream = await fetch("https://api.cloudflare.com/client/v4/accounts/0f5bff912816d29fc26168e07bf8a4ab/ai/run/@cf/meta/llama-3-8b-instruct", {
   method: "POST",
   headers: {
     "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
