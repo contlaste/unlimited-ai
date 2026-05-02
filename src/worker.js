@@ -90,15 +90,15 @@ async function handleChat(request, env) {
     );
   }
 
-  const upstream = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${env.NVIDIA_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      stream: true,
+  const upstream = await fetch("https://api.cloudflare.com/client/v4/accounts/1244212086@qq.com/ai/run/@cf/meta/llama-3-8b-instruct", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    messages: upstreamMessages,
+    stream: true
       stream_options: { include_usage: true },
       messages: upstreamMessages
     })
