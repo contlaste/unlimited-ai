@@ -99,8 +99,6 @@ async function handleChat(request, env) {
   body: JSON.stringify({
     messages: upstreamMessages,
     stream: true
-      stream_options: { include_usage: true },
-      messages: upstreamMessages
     })
   });
 
