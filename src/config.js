@@ -13,7 +13,7 @@ export const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro";
 export const MODELS = [
   { id: "deepseek-ai/deepseek-v4-pro", label: "deepseek-v4-pro", persona: 1 },
   { id: "z-ai/glm-5.1", label: "glm-5.1", persona: 2 },
-  { id: "qwen/qwen3.5-397b-a17b", label: "Qwen3.5-397B", persona: 3 },
+  { id: "moonshotai/kimi-k2.6", label: "kimi-k2.6", persona: 3 },
 ];
 
 // 内置人物模板 #1（deepseek/glm）——不会下发到网页
