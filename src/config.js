@@ -13,7 +13,7 @@ export const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro";
 export const MODELS = [
   { id: "deepseek-ai/deepseek-v4-pro", label: "deepseek-v4-pro", persona: 1 },
   { id: "z-ai/glm-5.1", label: "glm-5.1", persona: 2 },
-  { id: "nvidia/nemotron-3-super-120b-a12b", label: "nemotron-3-super-120b-a12b", persona: 3 },
+  { id: "minimaxai/minimax-m2.7", label: "minimax-m2.7", persona: 3 },
 ];
 
 // 内置人物模板 #1（deepseek/glm）——不会下发到网页
