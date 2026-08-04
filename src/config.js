@@ -12,7 +12,7 @@ export const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro";
 // 模型列表（label 是下拉显示；persona=1 使用 PROMPT_1；persona=2 使用 PROMPT_2）
 export const MODELS = [
   { id: "deepseek-ai/deepseek-v4-pro", label: "deepseek-v4-pro", persona: 1 },
-  { id: "z-ai/glm-5.1", label: "glm-5.1", persona: 2 },
+  { id: "z-ai/glm-5.2", label: "glm-5.2", persona: 2 },
   { id: "deepseek-ai/deepseek-v4-flash", label: "deepseek-v4-flash", persona: 3 },
 ];
 
