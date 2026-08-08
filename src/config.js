@@ -12,7 +12,7 @@ export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 export const MODELS = [
   { id: "openai/gpt-oss-120b", label: "gpt-oss-120b", persona: 1 },
   { id: "z-ai/glm-5.2", label: "glm-5.2", persona: 2 },
-  { id: "meta/llama-3.1-70b-instruct", label: "llama-3.1-70b-instruct", persona: 3 },
+  { id: "qwen/qwen3-next-80b-a3b-instruct, label: "qwen3-next-80b-a3b-instruct", persona: 3 },
   { id: "nvidia/nemotron-3-ultra-550b-a55b", label: "nemotron-3-ultra-550b-a55b", persona: 4 },
 ];
 
