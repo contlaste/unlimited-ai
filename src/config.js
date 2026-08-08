@@ -11,9 +11,9 @@ export const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro";
 
 // 模型列表（label 是下拉显示；persona=1 使用 PROMPT_1；persona=2 使用 PROMPT_2）
 export const MODELS = [
-  { id: "deepseek-ai/deepseek-v4-pro", label: "deepseek-v4-pro", persona: 1 },
+  { id: "openai/gpt-oss-120b", label: "gpt-oss-120b", persona: 1 },
   { id: "z-ai/glm-5.2", label: "glm-5.2", persona: 2 },
-  { id: "openai/gpt-oss-120b", label: "gpt-oss-120b", persona: 3 },
+  { id: "nvidia/nemotron-3-super-120b-a12b", label: "nemotron-3-super-120b-a12b", persona: 3 },
 ];
 
 // 内置人物模板 #1（deepseek/glm）——不会下发到网页
