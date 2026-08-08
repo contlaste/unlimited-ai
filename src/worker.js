@@ -3,7 +3,8 @@ import {
   MODELS,
   PROMPT_1,
   PROMPT_2,
-  PROMPT_3
+  PROMPT_3，
+  PROMPT_4
 } from "./config.js";
 
 function resp(body, contentType = "text/plain; charset=utf-8", status = 200, extraHeaders = {}) {
@@ -24,6 +25,7 @@ function builtinPromptForModel(modelId) {
   const meta = MODELS.find((m) => m.id === modelId);
   const persona = meta?.persona ?? 1;
 
+  if (persona === 4) return PROMPT_4;
   if (persona === 3) return PROMPT_3;
   if (persona === 2) return PROMPT_2;
   return PROMPT_1;
