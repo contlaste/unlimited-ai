@@ -13,7 +13,7 @@ export const DEFAULT_MODEL = "deepseek-ai/deepseek-v4-pro";
 export const MODELS = [
   { id: "deepseek-ai/deepseek-v4-pro", label: "deepseek-v4-pro", persona: 1 },
   { id: "z-ai/glm-5.2", label: "glm-5.2", persona: 2 },
-  { id: "meta/llama-3.3-70b-instruct", label: "llama-3.3-70b-instruct", persona: 3 },
+  { id: "openai/gpt-oss-120b", label: "gpt-oss-120b", persona: 3 },
 ];
 
 // 内置人物模板 #1（deepseek/glm）——不会下发到网页
