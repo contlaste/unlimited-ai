@@ -10,8 +10,8 @@ export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 
 // 模型列表（label 是下拉显示；persona=1 使用 PROMPT_1；persona=2 使用 PROMPT_2）
 export const MODELS = [
-  { id: "openai/gpt-oss-120b", label: "gpt-oss-120b", persona: 1 },
-  { id: "minimaxai/minimax-m3", label: "minimax-m3", persona: 2 },
+  { id: "deepseek-ai/deepseek-v4-pro-0813", label: "deepseek-v4-pro-0813", persona: 1 },
+  { id: "deepseek-ai/deepseek-v4-flash-0731", label: "deepseek-v4-flash-0731", persona: 2 },
   { id: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", label: "llama-3.1-nemotron-nano-vl-8b-v1", persona: 3 },
   { id: "nvidia/nemotron-3-ultra-550b-a55b", label: "nemotron-3-ultra-550b-a55b", persona: 4 },
 ];
