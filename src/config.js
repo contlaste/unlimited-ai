@@ -12,7 +12,7 @@ export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 export const MODELS = [
   { id: "deepseek-ai/deepseek-v4-pro-0813", label: "deepseek-v4-pro-0813", persona: 1 },
   { id: "deepseek-ai/deepseek-v4-flash-0731", label: "deepseek-v4-flash-0731", persona: 2 },
-  { id: "z-ai/glm-5-3", label: "glm-5-3", persona: 3 },
+  { id: "z-ai/glm-5-3-flash", label: "glm-5-3-flash", persona: 3 },
   { id: "nvidia/nemotron-3-ultra-550b-a55b", label: "nemotron-3-ultra-550b-a55b", persona: 4 },
 ];
 
