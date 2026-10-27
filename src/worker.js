@@ -16,7 +16,8 @@ const MAX_MESSAGES = 60;
 const MAX_MESSAGE_CHARS = 60000;
 const MAX_TOTAL_CHARS = 400000;
 // 等待上游「响应头」的最长时间；超过就主动放弃，避免浏览器干等
-const UPSTREAM_HEADER_TIMEOUT_MS = 80000;
+// 注意：上游自己在 ~100 秒就会返回 524，这里设 120 秒是为了兜住「连接挂住但没有任何响应」的情况
+const UPSTREAM_HEADER_TIMEOUT_MS = 120000;
 // 这些状态码通常是上游抖动/排队，自动重试一次（去掉 stream_options 简化请求）
 const RETRYABLE_STATUS = new Set([502, 503, 504, 522, 523, 524]);
 // 轻量限流（同一 isolate 内存内，best-effort）
