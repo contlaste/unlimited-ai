@@ -11,10 +11,14 @@ const UPSTREAM_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 // 请求体硬上限（字节）
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-// 上下文裁剪参数
-const MAX_MESSAGES = 60;
-const MAX_MESSAGE_CHARS = 120000;
-const MAX_TOTAL_CHARS = 400000;
+// 上下文裁剪参数（宁小勿大：上游要 prefill 全部 token，太长会撞 100s 的 524 超时）
+const MAX_MESSAGES = 40;
+const MAX_MESSAGE_CHARS = 60000;
+const MAX_TOTAL_CHARS = 120000;
+// 等待上游「响应头」的最长时间；超过就主动放弃，避免浏览器干等
+const UPSTREAM_HEADER_TIMEOUT_MS = 80000;
+// 这些状态码通常是上游抖动/排队，自动重试一次（去掉 stream_options 简化请求）
+const RETRYABLE_STATUS = new Set([502, 503, 504, 522, 523, 524]);
 // 轻量限流（同一 isolate 内存内，best-effort）
 const RATE_WINDOW_MS = 60000;
 const RATE_MAX = 60;
@@ -177,35 +181,89 @@ async function handleChat(request, env) {
 
   for (const msg of messages) upstreamMessages.push(msg);
 
-  let upstream;
-  try {
-    upstream = await fetch(UPSTREAM_URL, {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, UPSTREAM_HEADER_TIMEOUT_MS);
+
+  const onClientAbort = () => controller.abort();
+  if (request.signal) request.signal.addEventListener("abort", onClientAbort);
+
+  const call = (withUsage) =>
+    fetch(UPSTREAM_URL, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${env.NVIDIA_API_KEY}`,
         "Content-Type": "application/json",
         "Accept": "text/event-stream"
       },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        stream_options: { include_usage: true },
-        messages: upstreamMessages
-      }),
-      // 用户点“停止”断开连接时，顺带取消上游请求，避免继续计费
-      signal: request.signal
+      body: JSON.stringify(
+        withUsage
+          ? { model, stream: true, stream_options: { include_usage: true }, messages: upstreamMessages }
+          : { model, stream: true, messages: upstreamMessages }
+      ),
+      signal: controller.signal
     });
+
+  let upstream;
+  try {
+    upstream = await call(true);
+
+    // 上游抖动（含 524 源站超时）时，去掉 stream_options 再试一次
+    if (RETRYABLE_STATUS.has(upstream.status)) {
+      try {
+        await upstream.body?.cancel();
+      } catch {}
+      upstream = await call(false);
+    }
   } catch (err) {
-    if (err?.name === "AbortError") {
+    if (timedOut) {
+      return fail(
+        `上游 ${Math.round(UPSTREAM_HEADER_TIMEOUT_MS / 1000)} 秒内没有返回任何内容（已经主动断开）。` +
+          "常见原因是上下文太长、附件太大或该模型正在排队，请缩短对话/附件或换个模型再试。",
+        504,
+        "upstream_timeout"
+      );
+    }
+    if (request.signal?.aborted) {
       return resp("", "text/plain; charset=utf-8", 499);
     }
     return fail(`无法连接上游服务：${err?.message || err}`, 502, "upstream_unreachable");
+  } finally {
+    clearTimeout(timer);
+    if (request.signal) request.signal.removeEventListener("abort", onClientAbort);
   }
 
   if (!upstream.ok) {
     const errorText = await upstream.text().catch(() => "");
+    const status = upstream.status;
+
+    if (status === 524 || status === 504) {
+      return fail(
+        `上游超时（${status}，模型 ${model}）：100 秒内没有吐出第一个 token。` +
+          "这通常是上下文过长或该模型排队导致的，请清空/缩短对话、减少附件，或换个模型重试。",
+        504,
+        "upstream_timeout"
+      );
+    }
+
+    if (status === 429) {
+      return fail("上游限流了（429），请稍后再试或换个模型。", 429, "upstream_rate_limited");
+    }
+
+    if (status === 401 || status === 403) {
+      return fail(
+        `上游拒绝访问（${status}）：NVIDIA_API_KEY 可能无效或没有该模型权限。`,
+        502,
+        "upstream_auth"
+      );
+    }
+
     return fail(
-      `上游返回 ${upstream.status}：${errorText.slice(0, 2000)}`,
+      `上游返回 ${status}：${errorText.slice(0, 2000)}`,
       502,
       "upstream_error"
     );

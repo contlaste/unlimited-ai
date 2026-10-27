@@ -71,6 +71,17 @@ node test/run-tests.mjs    # 24 项：SSE 解析器 + Worker 路由/校验/限�
 node test/dom-test.mjs     # 12 项：jsdom 里跑真实前端交互（发送/停止/重新生成/上传）
 ```
 
+## 常见错误
+
+| 页面提示 | 含义 | 处理 |
+|---|---|---|
+| `请求失败（504）/ 上游超时 524` | NVIDIA 源站 100 秒没返回首个 token，通常是上下文太长、附件太大，或该模型在排队 | 清空/缩短对话、减少附件、换模型；Worker 已自动重试一次，仍失败就是上游问题 |
+| `请求失败（429）` | 本地限流（60 次/分钟）或上游限流 | 等一分钟；调 `src/worker.js` 的 `RATE_MAX` |
+| `上游拒绝访问（401/403）` | `NVIDIA_API_KEY` 无效或无该模型权限 | 重新 `wrangler secret put NVIDIA_API_KEY` |
+| `上游返回 400` | 消息格式或模型不支持（例如 `stream_options`） | 看响应体里的 detail |
+
+`wrangler tail` 可以看到每次请求的实际状态码（注意 524 是上游返回的，不是你 Worker 崩了）。
+
 ## 说明
 
 - 对话历史与自定义模板只存在浏览器 `localStorage`，不会上传到服务端。

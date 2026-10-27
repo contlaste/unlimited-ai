@@ -36,10 +36,11 @@
     { id: "openai/gpt-oss-120b", label: "gpt-oss-120b" },
   ]);
 
-  // ====== 文本附件限制 ======
-  const MAX_FILES = 5;
-  const MAX_FILE_BYTES = 200 * 1024;
-  const MAX_TOTAL_FILE_BYTES = 600 * 1024;
+  // ====== 文本附件限制（故意保守：附件会被完整塞进 prompt，太大会让上游 prefill 超时）======
+  const MAX_FILES = 3;
+  const MAX_FILE_BYTES = 40 * 1024;
+  const MAX_TOTAL_FILE_BYTES = 60 * 1024;
+  const WARN_PAYLOAD_CHARS = 40000;
   const TEXT_EXT = /\.(txt|text|md|markdown|mdx|json|jsonc|json5|js|mjs|cjs|jsx|ts|tsx|vue|svelte|py|rb|php|java|kt|swift|go|rs|c|h|cc|cpp|hpp|cs|m|mm|pl|lua|r|jl|scala|sh|bash|zsh|bat|ps1|cmd|sql|csv|tsv|log|html|htm|xml|css|scss|sass|less|yml|yaml|ini|conf|cfg|toml|env|properties|gradle|dockerfile|makefile|gitignore|srt|vtt|tex)$/i;
   const TEXT_MIME = /^(text\/|application\/(json|xml|x-yaml|yaml|x-sh|x-httpd-php|sql|javascript|typescript|x-javascript|x-python|x-ruby|x-shellscript|toml|rtf))/i;
 
@@ -701,6 +702,10 @@
     const files = pendingFiles.slice();
     const payloadText = buildPayloadText(typed, files);
     const displayText = buildDisplayText(typed, files);
+
+    if (payloadText.length > WARN_PAYLOAD_CHARS) {
+      toast(`内容较长（约 ${payloadText.length} 字），上游可能更慢或超时`);
+    }
 
     inputEl.value = "";
     autoGrow();

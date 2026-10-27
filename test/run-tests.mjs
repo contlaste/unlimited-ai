@@ -95,9 +95,19 @@ const SSE_REPLY =
 
 let captured = null;
 let upstreamStatus = 200;
+let nextResponses = [];
+const calls = [];
 
 globalThis.fetch = async (url, init) => {
   captured = { url: String(url), init };
+  calls.push(captured);
+
+  if (nextResponses.length) {
+    const next = nextResponses.shift();
+    if (typeof next === "function") return next(url, init);
+    return next;
+  }
+
   return new Response(SSE_REPLY, {
     status: upstreamStatus,
     headers: { "content-type": "text/event-stream" }
@@ -272,6 +282,61 @@ await ok("单条超长消息被截断", async () => {
   const sent = JSON.parse(captured.init.body).messages;
   assert.ok(sent[sent.length - 1].content.length < 200000);
   assert.match(sent[sent.length - 1].content, /已截断/);
+});
+
+await ok("单条超长消息按新上限截断到 6 万字以内", async () => {
+  await worker.fetch(
+    chatRequest({ model: MODELS[0].id, messages: [{ role: "user", content: "a".repeat(200000) }] }),
+    env
+  );
+  const sent = JSON.parse(captured.init.body).messages;
+  const last = sent[sent.length - 1].content;
+  assert.ok(last.length <= 60100, "应截断到 6 万字量级，实际 " + last.length);
+});
+
+await ok("上游 524 自动重试一次并去掉 stream_options", async () => {
+  calls.length = 0;
+  nextResponses = [
+    new Response("error code: 524", { status: 524 }),
+    new Response(SSE_REPLY, { status: 200, headers: { "content-type": "text/event-stream" } })
+  ];
+
+  const res = await worker.fetch(chatRequest({ messages: [{ role: "user", content: "x" }] }), env);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), SSE_REPLY);
+  assert.equal(calls.length, 2, "应当重试一次");
+  assert.ok(JSON.parse(calls[0].init.body).stream_options, "首次带 include_usage");
+  assert.equal(JSON.parse(calls[1].init.body).stream_options, undefined, "重试时去掉");
+});
+
+await ok("两次都 524 时返回 504 并给出可操作提示", async () => {
+  nextResponses = [
+    new Response("error code: 524", { status: 524 }),
+    new Response("error code: 524", { status: 524 })
+  ];
+
+  const res = await worker.fetch(chatRequest({ messages: [{ role: "user", content: "x" }] }), env);
+  assert.equal(res.status, 504);
+  const j = await res.json();
+  assert.equal(j.error.code, "upstream_timeout");
+  assert.match(j.error.message, /超时/);
+  assert.match(j.error.message, /上下文|附件|模型/);
+});
+
+await ok("上游 429 转成 429 而非 502", async () => {
+  nextResponses = [new Response("rate limited", { status: 429 })];
+  const res = await worker.fetch(chatRequest({ messages: [{ role: "user", content: "x" }] }), env);
+  assert.equal(res.status, 429);
+  assert.equal((await res.json()).error.code, "upstream_rate_limited");
+});
+
+await ok("上游 401 提示 key 无效", async () => {
+  nextResponses = [new Response("unauthorized", { status: 401 })];
+  const res = await worker.fetch(chatRequest({ messages: [{ role: "user", content: "x" }] }), env);
+  assert.equal(res.status, 502);
+  const j = await res.json();
+  assert.equal(j.error.code, "upstream_auth");
+  assert.match(j.error.message, /NVIDIA_API_KEY/);
 });
 
 await ok("触发限流返回 429", async () => {
