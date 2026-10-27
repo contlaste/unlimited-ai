@@ -339,6 +339,36 @@ await ok("上游 401 提示 key 无效", async () => {
   assert.match(j.error.message, /NVIDIA_API_KEY/);
 });
 
+await ok("历史最多保留 60 条", async () => {
+  const many = [];
+  for (let i = 0; i < 70; i++) {
+    many.push({ role: i % 2 === 0 ? "user" : "assistant", content: "第" + i + "条" + "字".repeat(100) });
+  }
+  many.push({ role: "user", content: "最后一句" });
+
+  await worker.fetch(chatRequest({ model: MODELS[0].id, messages: many }), env);
+  const sent = JSON.parse(captured.init.body).messages.slice(1);
+  assert.ok(sent.length <= 60, "最多 60 条，实际 " + sent.length);
+  assert.ok(sent.length >= 58, "不应过度裁剪，实际 " + sent.length);
+  assert.equal(sent[0].role, "user", "首条必须是 user");
+  assert.equal(sent[sent.length - 1].content, "最后一句");
+});
+
+await ok("上下文总量上限 40 万字", async () => {
+  const many = [];
+  for (let i = 0; i < 60; i++) {
+    many.push({ role: i % 2 === 0 ? "user" : "assistant", content: "x".repeat(8000) });
+  }
+  many.push({ role: "user", content: "最后一句" });
+
+  await worker.fetch(chatRequest({ model: MODELS[0].id, messages: many }), env);
+  const sent = JSON.parse(captured.init.body).messages.slice(1);
+  const total = sent.reduce((n, m) => n + m.content.length, 0);
+  assert.ok(total <= 400000, "总量应 <= 40 万字，实际 " + total);
+  assert.ok(sent.length >= 45 && sent.length <= 55, "应裁到 50 条上下，实际 " + sent.length);
+  assert.equal(sent[sent.length - 1].content, "最后一句");
+});
+
 await ok("触发限流返回 429", async () => {
   let last = null;
   for (let i = 0; i < 62; i++) {

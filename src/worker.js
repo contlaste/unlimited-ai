@@ -11,10 +11,10 @@ const UPSTREAM_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 
 // 请求体硬上限（字节）
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
-// 上下文裁剪参数（宁小勿大：上游要 prefill 全部 token，太长会撞 100s 的 524 超时）
-const MAX_MESSAGES = 40;
+// 上下文裁剪参数
+const MAX_MESSAGES = 60;
 const MAX_MESSAGE_CHARS = 60000;
-const MAX_TOTAL_CHARS = 120000;
+const MAX_TOTAL_CHARS = 400000;
 // 等待上游「响应头」的最长时间；超过就主动放弃，避免浏览器干等
 const UPSTREAM_HEADER_TIMEOUT_MS = 80000;
 // 这些状态码通常是上游抖动/排队，自动重试一次（去掉 stream_options 简化请求）

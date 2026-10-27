@@ -48,7 +48,7 @@ wrangler deploy
 | 内置人格 | `src/config.js` → `PROMPT_1` ~ `PROMPT_4` |
 | 上下文条数/字数上限 | `src/worker.js` → `MAX_MESSAGES` / `MAX_TOTAL_CHARS` / `MAX_MESSAGE_CHARS` |
 | 限流 | `src/worker.js` → `RATE_MAX` / `RATE_WINDOW_MS` |
-| 附件数量与字数 | `public/app.js` → `MAX_FILES` / `MAX_FILE_CHARS` / `MAX_TOTAL_ATTACH_CHARS` |
+| 附件数量、体积与字数 | `public/app.js` → `MAX_FILES` / `MAX_FILE_BYTES` / `MAX_FILE_CHARS` / `MAX_TOTAL_ATTACH_CHARS` |
 | 允许的附件类型 | 文本：`public/app.js` → `TEXT_EXT`；Word：`public/docs.js` → `detectWordKind`；两处都要同步 `index.html` 的 `accept` |
 
 ## 本地联调
@@ -68,9 +68,9 @@ NVIDIA_API_KEY=sk-xxx node dev-server.mjs
 ```bash
 npm i        # 只为测试装 jsdom，部署不需要
 npm test     # = 下面三条
-node test/run-tests.mjs    # 29 项：SSE 解析器 + Worker 路由/校验/限流/524 重试
-node test/docs-test.mjs    # 14 项：docx / doc 正文提取（样本由 test/fixtures.mjs 现场构造）
-node test/dom-test.mjs     # 14 项：jsdom 里跑真实前端交互（发送/停止/重新生成/上传）
+node test/run-tests.mjs    # 31 项：SSE 解析器 + Worker 路由/校验/裁剪/限流/524 重试
+node test/docs-test.mjs    # 23 项：docx / doc 正文提取（样本由 test/fixtures.mjs 现场构造）
+node test/dom-test.mjs     # 16 项：jsdom 里跑真实前端交互（发送/停止/重新生成/上传）
 ```
 
 ## 常见错误
@@ -85,6 +85,19 @@ node test/dom-test.mjs     # 14 项：jsdom 里跑真实前端交互（发送/�
 | 上传提示「无法识别…文件头 xx xx」 | 扩展名是假的（.doc 改名、下载到的是错误页） | 用 Word 打开后另存为 .docx；把提示里的文件头发我可进一步判断 |
 
 `wrangler tail` 可以看到每次请求的实际状态码（注意 524 是上游返回的，不是你 Worker 崩了）。
+
+## 限额
+
+| 项 | 值 | 改哪里 |
+|---|---|---|
+| 历史条数 | 60 条 | `src/worker.js` → `MAX_MESSAGES` |
+| 单条消息 | 6 万字 | `MAX_MESSAGE_CHARS` |
+| 上下文总量 | 40 万字（超出从最早的消息开始丢） | `MAX_TOTAL_CHARS` |
+| 附件数量与体积 | 3 个 / 每个 200 KB | `public/app.js` → `MAX_FILES` / `MAX_FILE_BYTES` |
+| 附件正文 | 单条 6 万字、合计 6 万字 | `MAX_FILE_CHARS` / `MAX_TOTAL_ATTACH_CHARS` |
+| 限流 | 60 次 / 分钟（单 isolate） | `RATE_MAX` |
+
+注意：附件正文最终仍受「单条消息 6 万字」约束——超出的部分会被截断并提示。
 
 ## 说明
 

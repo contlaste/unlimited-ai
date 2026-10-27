@@ -263,6 +263,31 @@ await ok("损坏的 docx 给出可读错误且不加入附件", async () => {
   assert.match(doc.getElementById("toast").textContent, /解析失败/);
 });
 
+await ok("超过 200KB 的文件被跳过", async () => {
+  const { win, doc } = boot();
+  const big = new win.File(["x".repeat(210 * 1024)], "大文件.txt", { type: "text/plain" });
+
+  const input = doc.getElementById("fileInput");
+  Object.defineProperty(input, "files", { value: [big], configurable: true });
+  input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(80);
+
+  assert.equal(doc.querySelectorAll("#attachments .chip").length, 0);
+  assert.match(doc.getElementById("toast").textContent, /200\.0 KB/);
+});
+
+await ok("200KB 以内的文件可以上传", async () => {
+  const { win, doc } = boot();
+  const ok = new win.File(["y".repeat(150 * 1024)], "刚好.txt", { type: "text/plain" });
+
+  const input = doc.getElementById("fileInput");
+  Object.defineProperty(input, "files", { value: [ok], configurable: true });
+  input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(80);
+
+  assert.equal(doc.querySelectorAll("#attachments .chip").length, 1);
+});
+
 await ok("非文本文件被忽略", async () => {
   const { win, doc } = boot();
   const file = new win.File(["x"], "photo.jpg", { type: "image/jpeg" });
