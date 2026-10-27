@@ -43,11 +43,8 @@
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
 
-  // 从 zip 里取出指定条目（只走中央目录，足够处理 Word 生成的 docx）
-  async function unzipEntry(buffer, entryName) {
-    const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-
+  // 解析 zip 中央目录，返回条目表（顺便供“这到底是什么文件”的诊断用）
+  function parseZip(u8) {
     let eocd = -1;
     const floor = Math.max(0, u8.length - 66000);
     for (let i = u8.length - 22; i >= floor; i--) {
@@ -56,38 +53,51 @@
         break;
       }
     }
-    if (eocd < 0) throw new Error("不是有效的 .docx（找不到 zip 目录）");
+    if (eocd < 0) throw new Error("zip 结构不完整（找不到中央目录），文件可能已损坏或被截断");
 
     const count = u16(u8, eocd + 10);
     let p = u32(u8, eocd + 16);
+    const entries = [];
 
     for (let i = 0; i < count; i++) {
-      if (u32(u8, p) !== 0x02014b50) break;
+      if (p + 46 > u8.length || u32(u8, p) !== 0x02014b50) break;
 
-      const method = u16(u8, p + 10);
-      const compSize = u32(u8, p + 20);
       const nameLen = u16(u8, p + 28);
       const extraLen = u16(u8, p + 30);
       const commentLen = u16(u8, p + 32);
-      const localOffset = u32(u8, p + 42);
-      const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen));
 
-      if (name === entryName) {
-        if (u32(u8, localOffset) !== 0x04034b50) throw new Error("docx 局部文件头损坏");
-        const lhNameLen = u16(u8, localOffset + 26);
-        const lhExtraLen = u16(u8, localOffset + 28);
-        const dataStart = localOffset + 30 + lhNameLen + lhExtraLen;
-        const data = u8.subarray(dataStart, dataStart + compSize);
-
-        if (method === 0) return data;
-        if (method === 8) return await inflateRaw(data);
-        throw new Error("docx 使用了不支持的压缩方式：" + method);
-      }
+      entries.push({
+        name: new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen)),
+        method: u16(u8, p + 10),
+        compSize: u32(u8, p + 20),
+        localOffset: u32(u8, p + 42)
+      });
 
       p += 46 + nameLen + extraLen + commentLen;
     }
 
-    return null;
+    return entries;
+  }
+
+  async function readZipEntries(u8, wanted) {
+    const entries = parseZip(u8);
+    const hit = entries.find((e) => e.name === wanted);
+    if (!hit) return { data: null, names: entries.map((e) => e.name) };
+
+    const localOffset = hit.localOffset;
+    if (u32(u8, localOffset) !== 0x04034b50) throw new Error("zip 局部文件头损坏");
+
+    const lhNameLen = u16(u8, localOffset + 26);
+    const lhExtraLen = u16(u8, localOffset + 28);
+    const dataStart = localOffset + 30 + lhNameLen + lhExtraLen;
+    const raw = u8.subarray(dataStart, dataStart + hit.compSize);
+
+    let data;
+    if (hit.method === 0) data = raw;
+    else if (hit.method === 8) data = await inflateRaw(raw);
+    else throw new Error("docx 使用了不支持的压缩方式：" + hit.method);
+
+    return { data, names: entries.map((e) => e.name) };
   }
 
   // 从 OOXML 里抽正文：<w:t> 是文本，<w:tab/> <w:br/> </w:p> 是排版边界
@@ -106,12 +116,17 @@
   }
 
   async function extractDocx(buffer) {
-    const entry = await unzipEntry(buffer, DOCX_ENTRY);
-    if (!entry) throw new Error("这个 docx 里没有 word/document.xml，可能不是 Word 文档");
+    const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    const { data, names } = await readZipEntries(u8, DOCX_ENTRY);
 
-    const xml = new TextDecoder("utf-8").decode(entry);
-    const text = ooxmlToText(xml);
-    if (!text) throw new Error("docx 里没有提取到文字（可能是纯图片文档）");
+    if (!data) {
+      if (names.some((n) => n.startsWith("xl/"))) throw new Error("这看起来是 Excel 文件，不是 Word 文档");
+      if (names.some((n) => n.startsWith("ppt/"))) throw new Error("这看起来是 PPT 文件，不是 Word 文档");
+      throw new Error("这个 docx 里没有 word/document.xml，可能不是 Word 文档");
+    }
+
+    const text = ooxmlToText(new TextDecoder("utf-8").decode(data));
+    if (!text) throw new Error("docx 里没有提取到文字（可能是纯图片或空的文档）");
     return text;
   }
 
@@ -211,6 +226,9 @@
     }
 
     return {
+      names() {
+        return entries.filter((e) => e.type === 2).map((e) => e.name);
+      },
       getStream(name) {
         const e = entries.find((x) => x.type === 2 && x.name === name);
         if (!e) return null;
@@ -340,11 +358,93 @@
     return null;
   }
 
-  async function extractWord(buffer, kind) {
-    return kind === "docx" ? await extractDocx(buffer) : extractDoc(buffer);
+  // 只看文件头判断容器类型，不信扩展名（改名、加密都会让扩展名说谎）
+  function sniffContainer(u8) {
+    if (u8.length >= 4) {
+      const pk = u8[0] === 0x50 && u8[1] === 0x4b;
+      const okLocal = u8[2] === 0x03 && u8[3] === 0x04;
+      const okEmpty = u8[2] === 0x05 && u8[3] === 0x06;
+      const okSpan = u8[2] === 0x07 && u8[3] === 0x08;
+      if (pk && (okLocal || okEmpty || okSpan)) return "zip";
+    }
+
+    if (
+      u8.length >= 8 &&
+      u8[0] === 0xd0 && u8[1] === 0xcf && u8[2] === 0x11 && u8[3] === 0xe0 &&
+      u8[4] === 0xa1 && u8[5] === 0xb1 && u8[6] === 0x1a && u8[7] === 0xe1
+    ) {
+      return "cfb";
+    }
+
+    const head = new TextDecoder("utf-8")
+      .decode(u8.subarray(0, Math.min(1024, u8.length)))
+      .replace(/^\uFEFF/, "")
+      .trimStart();
+
+    if (head.startsWith("<")) return "xml";
+    return "unknown";
   }
 
-  const api = { detectWordKind, extractWord, extractDocx, extractDoc, ooxmlToText };
+  function hexHead(u8, n = 8) {
+    return Array.from(u8.subarray(0, Math.min(n, u8.length)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ");
+  }
+
+  async function extractWord(buffer, kind) {
+    const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    if (!u8.length) throw new Error("文件是空的");
+
+    const container = sniffContainer(u8);
+
+    // 1) 正常 docx / docm
+    if (container === "zip") return await extractDocx(u8);
+
+    // 2) OLE2 容器：可能是真 .doc，也可能是加密 Office 文档，还可能是 Excel/PPT 改名
+    if (container === "cfb") {
+      const cfb = readCfb(u8);
+      const names = cfb.names();
+
+      if (names.includes("EncryptionInfo") || names.includes("EncryptedPackage")) {
+        throw new Error("这个文档设了打开密码（加密的 Office 文件），请先在 Word 里去掉密码再上传");
+      }
+      if (names.includes("WordDocument")) {
+        // .doc 改成了 .docx，或者本来就是 .doc——统一走 doc 解析
+        return extractDoc(u8);
+      }
+      if (names.includes("Workbook") || names.includes("Book")) {
+        throw new Error("这看起来是 Excel 文件（.xls），不是 Word 文档");
+      }
+      if (names.includes("PowerPoint Document")) {
+        throw new Error("这看起来是 PPT 文件（.ppt），不是 Word 文档");
+      }
+      throw new Error("这是 OLE 文档，但里面没有 Word 正文，可能不是 Word 文件");
+    }
+
+    // 3) Word 2003 XML（.xml / 伪装成 .doc 的 XML）
+    if (container === "xml") {
+      const xml = new TextDecoder("utf-8").decode(u8).replace(/^\uFEFF/, "");
+      if (xml.indexOf("<w:body") === -1 && xml.indexOf("<w:wordDocument") === -1) {
+        throw new Error("这是 XML 文件，但不是 Word 文档（找不到 w:body）");
+      }
+      const text = ooxmlToText(xml);
+      if (!text) throw new Error("Word XML 里没有提取到文字");
+      return text;
+    }
+
+    throw new Error(
+      `无法识别这个文件的格式（文件头 ${hexHead(u8)}），请用 Word 另存为 .docx 后重试`
+    );
+  }
+
+  const api = {
+    detectWordKind,
+    extractWord,
+    extractDocx,
+    extractDoc,
+    ooxmlToText,
+    sniffContainer
+  };
 
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.DOCS = api;

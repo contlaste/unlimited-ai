@@ -81,6 +81,8 @@ node test/dom-test.mjs     # 14 项：jsdom 里跑真实前端交互（发送/�
 | `请求失败（429）` | 本地限流（60 次/分钟）或上游限流 | 等一分钟；调 `src/worker.js` 的 `RATE_MAX` |
 | `上游拒绝访问（401/403）` | `NVIDIA_API_KEY` 无效或无该模型权限 | 重新 `wrangler secret put NVIDIA_API_KEY` |
 | `上游返回 400` | 消息格式或模型不支持（例如 `stream_options`） | 看响应体里的 detail |
+| 上传提示「设了打开密码」 | 加密的 Office 文档会被存成 OLE 容器，不是 zip | 在 Word 里去掉打开密码后另存为 .docx |
+| 上传提示「无法识别…文件头 xx xx」 | 扩展名是假的（.doc 改名、下载到的是错误页） | 用 Word 打开后另存为 .docx；把提示里的文件头发我可进一步判断 |
 
 `wrangler tail` 可以看到每次请求的实际状态码（注意 524 是上游返回的，不是你 Worker 崩了）。
 

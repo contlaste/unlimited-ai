@@ -79,7 +79,9 @@
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+    // 长错误多留一会儿，方便看清
+    const ms = Math.min(6000, Math.max(2200, String(msg).length * 80));
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
   }
 
   function formatSize(bytes) {

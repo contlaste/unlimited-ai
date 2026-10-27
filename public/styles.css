@@ -628,7 +628,10 @@ button#sendBtn.stop:hover{
   background:rgba(20,20,20,.96);
   color:#eee;
   font-size:13px;
+  line-height:1.5;
   text-align:center;
+  word-break:break-word;
+  white-space:pre-wrap;
   opacity:0;
   pointer-events:none;
   transition:.2s;

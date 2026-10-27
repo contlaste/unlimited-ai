@@ -110,7 +110,42 @@ function dirSector(entries) {
   return Buffer.concat([b, Buffer.alloc(SEC - b.length)]);
 }
 
-// 扇区编号从文件偏移 512 起算：扇区 0 = FAT，扇区 1 = 目录
+// 通用：构造一个含任意命名流的 CFB（每个流 4096 字节，走普通扇区）
+export function buildCfbStreams(names) {
+  const SEC = 512;
+  const END = 0xfffffffe;
+  const perStream = 8; // 4096 / 512
+  const dirSectors = Math.ceil((1 + names.length) / 4);
+  const total = 1 + dirSectors + names.length * perStream;
+
+  const fat = new Array(total).fill(END);
+  fat[0] = 0xfffffffd;
+  for (let i = 0; i < dirSectors; i++) {
+    fat[1 + i] = i === dirSectors - 1 ? END : 2 + i;
+  }
+
+  const starts = [];
+  let cur = 1 + dirSectors;
+  for (let s = 0; s < names.length; s++) {
+    starts.push(cur);
+    for (let k = 0; k < perStream; k++) {
+      fat[cur] = k === perStream - 1 ? END : cur + 1;
+      cur++;
+    }
+  }
+
+  const entries = [dirEntry("Root Entry", 5, END, 0)];
+  names.forEach((nm, i) => entries.push(dirEntry(nm, 2, starts[i], perStream * SEC)));
+
+  const dirBuf = Buffer.alloc(dirSectors * SEC);
+  entries.forEach((e, i) => e.copy(dirBuf, i * 128));
+
+  const parts = [cfbHeader({ numFat: 1, firstDir: 1 }), fatSector(fat), dirBuf];
+  for (let s = 0; s < names.length; s++) parts.push(Buffer.alloc(perStream * SEC));
+
+  return new Uint8Array(Buffer.concat(parts));
+}
+
 // 简单文档：fComplex = 0，正文直接放在 fcMin..fcMac
 export function buildSimpleDoc(text) {
   const FC_MIN = 1024;
