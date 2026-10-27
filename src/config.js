@@ -2,9 +2,6 @@
 // =============================
 // ✨ 修改入口：把你要改的都集中在这里
 // =============================
-// 进页面要输入的聊天密码（前端会弹窗；Worker 也会校验）
-export const CHAT_PASSWORD = "114514";
-
 // 默认模型
 export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 

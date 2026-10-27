@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -19,6 +19,7 @@
           <a
             href="https://github.com/MallocPointer/unlimited-ai"
             target="_blank"
+            rel="noopener noreferrer"
             class="iconbtn"
             id="githubBtn"
             style="text-decoration: none;"
@@ -49,10 +50,23 @@
 
   <div class="input-floating">
     <div class="input-inner" id="composer">
-      <textarea id="msg" rows="1" placeholder="Message..."></textarea>
-      <button id="sendBtn">Send</button>
+      <button class="attach-btn" id="uploadBtn" type="button" title="添加文本文件（txt / md / 代码等）">+</button>
+      <div class="composer-col">
+        <div id="attachments" class="attachments"></div>
+        <textarea id="msg" rows="1" placeholder="Message...（+ 可上传文本文件）"></textarea>
+      </div>
+      <button id="sendBtn" type="button">Send</button>
     </div>
+    <input
+      type="file"
+      id="fileInput"
+      multiple
+      hidden
+      accept=".txt,.text,.md,.markdown,.mdx,.json,.jsonc,.json5,.js,.mjs,.cjs,.jsx,.ts,.tsx,.vue,.svelte,.py,.rb,.php,.java,.kt,.swift,.go,.rs,.c,.h,.cc,.cpp,.hpp,.cs,.pl,.lua,.r,.scala,.sh,.bash,.zsh,.bat,.ps1,.cmd,.sql,.csv,.tsv,.log,.html,.htm,.xml,.css,.scss,.sass,.less,.yml,.yaml,.ini,.conf,.cfg,.toml,.env,.properties,.gradle,.srt,.vtt,.tex,text/*"
+    />
   </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <div id="settingsMask">
     <div id="settings">
@@ -128,6 +142,7 @@
 </div>
 
 <script src="/config.js"></script>
+<script src="/sse.js"></script>
 <script src="/app.js"></script>
 <script>
   window.addEventListener("load", function () {

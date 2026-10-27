@@ -1,61 +1,92 @@
 // public/app.js
 (() => {
-  const historyWrap = document.getElementById("history");
-  const chatEl = document.getElementById("chat");
-  const inputEl = document.getElementById("msg");
-  const composerEl = document.getElementById("composer");
-  const spacerEl = document.getElementById("bottom-spacer");
+  "use strict";
 
-  const modelSel = document.getElementById("modelSel");
-  const personaToggle = document.getElementById("personaToggle");
-  const settingsBtn = document.getElementById("settingsBtn");
-  const sendBtn = document.getElementById("sendBtn");
+  const $ = (id) => document.getElementById(id);
 
-  const settingsMask = document.getElementById("settingsMask");
-  const customPromptEl = document.getElementById("customPrompt");
-  const savePromptBtn = document.getElementById("savePrompt");
-  const clearPromptBtn = document.getElementById("clearPrompt");
-  const closeSettingsBtn = document.getElementById("closeSettings");
-  const historyKeepEl = document.getElementById("historyKeep");
-  const clearHistoryBtn = document.getElementById("clearHistory");
-  const promptKeepEl = document.getElementById("promptKeep");
+  const historyWrap = $("history");
+  const chatEl = $("chat");
+  const inputEl = $("msg");
+  const composerEl = $("composer");
+  const spacerEl = $("bottom-spacer");
 
-  const donateBtn = document.getElementById("donateBtn");
-  const donateMask = document.getElementById("donateMask");
-  const donateClose = document.getElementById("donateClose");
+  const modelSel = $("modelSel");
+  const personaToggle = $("personaToggle");
+  const settingsBtn = $("settingsBtn");
+  const sendBtn = $("sendBtn");
+  const uploadBtn = $("uploadBtn");
+  const fileInput = $("fileInput");
+  const attachmentsEl = $("attachments");
+  const toastEl = $("toast");
+
+  const settingsMask = $("settingsMask");
+  const customPromptEl = $("customPrompt");
+  const savePromptBtn = $("savePrompt");
+  const clearPromptBtn = $("clearPrompt");
+  const closeSettingsBtn = $("closeSettings");
+  const historyKeepEl = $("historyKeep");
+  const clearHistoryBtn = $("clearHistory");
+  const promptKeepEl = $("promptKeep");
+
+  const donateBtn = $("donateBtn");
+  const donateMask = $("donateMask");
+  const donateClose = $("donateClose");
 
   const MODELS = (window.APP_MODELS || [
-    { id: "deepseek-ai/deepseek-v4-pro", label: "deepseek-v4-pro" },
-    { id: "z-ai/glm-5.1", label: "glm-5.1" },
     { id: "openai/gpt-oss-120b", label: "gpt-oss-120b" },
   ]);
 
+  // ====== 文本附件限制 ======
+  const MAX_FILES = 5;
+  const MAX_FILE_BYTES = 200 * 1024;
+  const MAX_TOTAL_FILE_BYTES = 600 * 1024;
+  const TEXT_EXT = /\.(txt|text|md|markdown|mdx|json|jsonc|json5|js|mjs|cjs|jsx|ts|tsx|vue|svelte|py|rb|php|java|kt|swift|go|rs|c|h|cc|cpp|hpp|cs|m|mm|pl|lua|r|jl|scala|sh|bash|zsh|bat|ps1|cmd|sql|csv|tsv|log|html|htm|xml|css|scss|sass|less|yml|yaml|ini|conf|cfg|toml|env|properties|gradle|dockerfile|makefile|gitignore|srt|vtt|tex)$/i;
+  const TEXT_MIME = /^(text\/|application\/(json|xml|x-yaml|yaml|x-sh|x-httpd-php|sql|javascript|typescript|x-javascript|x-python|x-ruby|x-shellscript|toml|rtf))/i;
+
+  const LS_MODEL = "cfw_model";
+  const LS_USE_BUILTIN = "cfw_use_builtin";      // "1"=😈, "0"=😇
+  const LS_HISTORY_ENABLED = "cfw_history_enabled";
+  const LS_CHAT_SESSION = "cfw_chat_session_v1";
+  const LS_PROMPT_ENABLED = "cfw_prompt_enabled";
+  const LS_CUSTOM_PROMPT = "cfw_custom_prompt_v1";
+
+  const MAX_PERSIST_CHARS = 2000000;
+
   const session = [];
+  let pendingFiles = [];
+  let streaming = false;
+  let abortController = null;
 
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
   let totalInEstimate = 0;
   let totalOutEstimate = 0;
 
-  // ====== 本地存储 Key（严格分离：历史 vs 自定义模板） ======
-  const LS_MODEL = "cfw_model";
-  const LS_USE_BUILTIN = "cfw_use_builtin";      // "1"=😈, "0"=😇
-
-  const LS_HISTORY_ENABLED = "cfw_history_enabled";
-  const LS_CHAT_SESSION = "cfw_chat_session_v1";
-
-  const LS_PROMPT_ENABLED = "cfw_prompt_enabled";
-  const LS_CUSTOM_PROMPT = "cfw_custom_prompt_v1";
-
-    let useBuiltin = (localStorage.getItem(LS_USE_BUILTIN) ?? "1") === "1";
+  let useBuiltin = (localStorage.getItem(LS_USE_BUILTIN) ?? "1") === "1";
   personaToggle.textContent = useBuiltin ? "😈" : "😇";
 
   let historyEnabled = (localStorage.getItem(LS_HISTORY_ENABLED) ?? "0") === "1";
-  let promptEnabled  = (localStorage.getItem(LS_PROMPT_ENABLED) ?? "1") === "1";
+  let promptEnabled = (localStorage.getItem(LS_PROMPT_ENABLED) ?? "1") === "1";
   historyKeepEl.checked = historyEnabled;
   promptKeepEl.checked = promptEnabled;
 
-  function estimateTokens(text){
+  // ===== 小工具 =====
+  let toastTimer = 0;
+  function toast(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2200);
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1024 / 1024).toFixed(2) + " MB";
+  }
+
+  function estimateTokens(text) {
     if (!text) return 0;
     let cjk = 0, ascii = 0;
     for (const ch of text) {
@@ -72,7 +103,7 @@
     return cjk + Math.ceil(ascii / 4);
   }
 
-  function updateSpacer(){
+  function updateSpacer() {
     if (!composerEl || !spacerEl) return;
     const rect = composerEl.getBoundingClientRect();
     const rootStyle = getComputedStyle(document.documentElement);
@@ -83,15 +114,23 @@
     historyWrap.style.scrollPaddingBottom = h + "px";
   }
 
-  function isNearBottom(){
+  function isNearBottom() {
     const threshold = 120;
     return (historyWrap.scrollHeight - historyWrap.scrollTop - historyWrap.clientHeight) < threshold;
   }
-  function scrollToBottom(){
+
+  function scrollToBottom() {
     historyWrap.scrollTo({ top: historyWrap.scrollHeight, behavior: "auto" });
   }
 
-  function makeRow(role){
+  function autoGrow() {
+    inputEl.style.height = "auto";
+    const max = parseFloat(getComputedStyle(inputEl).maxHeight) || 200;
+    inputEl.style.height = Math.min(inputEl.scrollHeight, max) + "px";
+  }
+
+  // ===== 渲染 =====
+  function makeRow(role) {
     const row = document.createElement("div");
     row.className = "row " + (role === "user" ? "user" : "ai");
 
@@ -114,6 +153,29 @@
 
     content.appendChild(meta);
     content.appendChild(bubble);
+
+    let actions = null;
+    if (role === "assistant") {
+      actions = document.createElement("div");
+      actions.className = "actions";
+
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.className = "act act-copy";
+      copyBtn.textContent = "复制";
+      copyBtn.addEventListener("click", () => copyText(bubble.textContent, copyBtn));
+
+      const regenBtn = document.createElement("button");
+      regenBtn.type = "button";
+      regenBtn.className = "act act-regen";
+      regenBtn.textContent = "重新生成";
+      regenBtn.addEventListener("click", () => regenerate());
+
+      actions.appendChild(copyBtn);
+      actions.appendChild(regenBtn);
+      content.appendChild(actions);
+    }
+
     content.appendChild(stats);
 
     if (role === "user") {
@@ -127,10 +189,10 @@
     chatEl.insertBefore(row, spacerEl);
     if (isNearBottom()) scrollToBottom();
 
-    return { bubble, stats };
+    return { row, bubble, stats, actions };
   }
 
-  function clearUIRows(){
+  function clearUIRows() {
     const nodes = Array.from(chatEl.children);
     for (const n of nodes) {
       if (n === spacerEl) continue;
@@ -138,12 +200,62 @@
     }
   }
 
-  function persistSessionIfEnabled(){
-    if (!historyEnabled) return;
-    try { localStorage.setItem(LS_CHAT_SESSION, JSON.stringify(session)); } catch {}
+  // “重新生成”只对最后一条 AI 回复显示
+  function refreshActions() {
+    const aiRows = Array.from(chatEl.querySelectorAll(".row.ai"));
+    aiRows.forEach((row, i) => {
+      const btn = row.querySelector(".act-regen");
+      if (!btn) return;
+      const isLast = i === aiRows.length - 1;
+      btn.disabled = streaming;
+      btn.style.display = (isLast && !streaming) ? "" : "none";
+    });
   }
 
-  function restoreSessionIfEnabled(){
+  async function copyText(text, btn) {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      const old = btn.textContent;
+      btn.textContent = "已复制";
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    } catch {
+      toast("复制失败，请手动选择文本");
+    }
+  }
+
+  // ===== 本地存储 =====
+  function persistSessionIfEnabled() {
+    if (!historyEnabled) return;
+    try {
+      const data = session.map((m) => ({
+        role: m.role,
+        content: m.content,
+        display: m.display || ""
+      }));
+      const raw = JSON.stringify(data);
+      if (raw.length > MAX_PERSIST_CHARS) {
+        console.warn("[history] 本地历史过大，已跳过本次持久化");
+        return;
+      }
+      localStorage.setItem(LS_CHAT_SESSION, raw);
+    } catch (err) {
+      console.warn("[history] 本地历史保存失败", err);
+    }
+  }
+
+  function restoreSessionIfEnabled() {
     if (!historyEnabled) return;
     const raw = localStorage.getItem(LS_CHAT_SESSION);
     if (!raw) return;
@@ -154,20 +266,27 @@
 
       session.length = 0;
       for (const m of arr) {
-        if (!m || (m.role !== "user" && m.role !== "assistant") || typeof m.content !== "string") continue;
-        session.push({ role: m.role, content: m.content });
+        if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+        if (typeof m.content !== "string") continue;
+        session.push({
+          role: m.role,
+          content: m.content,
+          display: typeof m.display === "string" ? m.display : ""
+        });
       }
 
       clearUIRows();
       for (const m of session) {
         const r = makeRow(m.role === "user" ? "user" : "assistant");
-        r.bubble.textContent = m.content;
+        r.bubble.textContent = (m.role === "user" && m.display) ? m.display : m.content;
         r.stats.textContent = "";
+        m.el = r.row;
       }
+      refreshActions();
     } catch {}
   }
 
-  function initModels(){
+  function initModels() {
     modelSel.innerHTML = "";
     for (const m of MODELS) {
       const opt = document.createElement("option");
@@ -177,21 +296,20 @@
     }
 
     const saved = localStorage.getItem(LS_MODEL);
-    modelSel.value = saved || MODELS[0].id;
+    modelSel.value = (saved && MODELS.some((m) => m.id === saved)) ? saved : MODELS[0].id;
 
     modelSel.addEventListener("change", () => {
       localStorage.setItem(LS_MODEL, modelSel.value);
     });
   }
 
-  // 😈/😇
+  // ===== 顶栏 / 设置 =====
   personaToggle.addEventListener("click", () => {
     useBuiltin = !useBuiltin;
     personaToggle.textContent = useBuiltin ? "😈" : "😇";
     localStorage.setItem(LS_USE_BUILTIN, useBuiltin ? "1" : "0");
   });
 
-  // Settings
   settingsBtn.addEventListener("click", () => {
     settingsMask.style.display = "flex";
     historyKeepEl.checked = historyEnabled;
@@ -205,7 +323,6 @@
     if (e.target === settingsMask) settingsMask.style.display = "none";
   });
 
-  // history
   historyKeepEl.addEventListener("change", () => {
     historyEnabled = !!historyKeepEl.checked;
     localStorage.setItem(LS_HISTORY_ENABLED, historyEnabled ? "1" : "0");
@@ -221,7 +338,6 @@
     scrollToBottom();
   });
 
-  // custom prompt
   promptKeepEl.addEventListener("change", () => {
     promptEnabled = !!promptKeepEl.checked;
     localStorage.setItem(LS_PROMPT_ENABLED, promptEnabled ? "1" : "0");
@@ -240,23 +356,164 @@
     customPromptEl.value = "";
   });
 
-  // donate
-  function openDonate(){ donateMask.style.display = "flex"; }
-  function closeDonate(){ donateMask.style.display = "none"; }
+  // 打赏弹窗
+  function openDonate() { donateMask.style.display = "flex"; }
+  function closeDonate() { donateMask.style.display = "none"; }
   donateBtn.addEventListener("click", openDonate);
   donateClose.addEventListener("click", closeDonate);
   donateMask.addEventListener("click", (e) => { if (e.target === donateMask) closeDonate(); });
 
-  // composer
+  // ===== 文本附件 =====
+  function isProbablyText(file) {
+    if (TEXT_EXT.test(file.name)) return true;
+    if (file.type && TEXT_MIME.test(file.type)) return true;
+    if (!file.type) return true; // 无 MIME 的多为代码/纯文本
+    return false;
+  }
+
+  function guessLang(name) {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const map = {
+      js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx",
+      ts: "typescript", tsx: "tsx", py: "python", rb: "ruby", php: "php",
+      java: "java", go: "go", rs: "rust", c: "c", h: "c", cpp: "cpp",
+      cs: "csharp", sh: "bash", bash: "bash", zsh: "bash", ps1: "powershell",
+      sql: "sql", html: "html", htm: "html", css: "css", scss: "scss",
+      json: "json", yml: "yaml", yaml: "yaml", toml: "toml", xml: "xml",
+      md: "markdown", markdown: "markdown", csv: "csv", tsv: "tsv",
+      kt: "kotlin", swift: "swift", lua: "lua", r: "r", pl: "perl"
+    };
+    return map[ext] || "";
+  }
+
+  function renderAttachments() {
+    if (!attachmentsEl) return;
+    attachmentsEl.innerHTML = "";
+
+    if (!pendingFiles.length) {
+      attachmentsEl.style.display = "none";
+      return;
+    }
+
+    attachmentsEl.style.display = "flex";
+
+    pendingFiles.forEach((f, index) => {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+
+      const name = document.createElement("span");
+      name.className = "chip-name";
+      name.textContent = f.name;
+      name.title = `${f.name} · ${formatSize(f.size)}`;
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "chip-x";
+      remove.title = "移除";
+      remove.textContent = "✕";
+      remove.addEventListener("click", () => {
+        pendingFiles.splice(index, 1);
+        renderAttachments();
+        updateSpacer();
+      });
+
+      chip.appendChild(name);
+      chip.appendChild(remove);
+      attachmentsEl.appendChild(chip);
+    });
+  }
+
+  async function addFiles(fileList) {
+    const files = Array.from(fileList || []);
+    let totalBytes = pendingFiles.reduce((sum, f) => sum + f.size, 0);
+    let skipped = 0;
+
+    for (const file of files) {
+      if (pendingFiles.length >= MAX_FILES) {
+        toast(`最多同时上传 ${MAX_FILES} 个文件`);
+        break;
+      }
+      if (!isProbablyText(file)) {
+        skipped++;
+        continue;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        toast(`${file.name} 超过 ${formatSize(MAX_FILE_BYTES)}，已跳过`);
+        continue;
+      }
+      if (totalBytes + file.size > MAX_TOTAL_FILE_BYTES) {
+        toast(`附件总大小超过 ${formatSize(MAX_TOTAL_FILE_BYTES)}，已跳过`);
+        break;
+      }
+
+      let content = "";
+      try {
+        content = await file.text();
+      } catch {
+        toast(`${file.name} 读取失败`);
+        continue;
+      }
+
+      // 含 NUL 字节基本可判定为二进制
+      if (content.indexOf("\u0000") !== -1) {
+        skipped++;
+        continue;
+      }
+
+      pendingFiles.push({
+        name: file.name,
+        size: file.size,
+        content,
+        lang: guessLang(file.name)
+      });
+      totalBytes += file.size;
+    }
+
+    if (skipped) toast(`已忽略 ${skipped} 个非文本文件`);
+
+    renderAttachments();
+    updateSpacer();
+  }
+
+  // 发给模型的内容（带完整正文）
+  function buildPayloadText(text, files) {
+    if (!files.length) return text;
+
+    const blocks = files.map((f) => {
+      const lang = f.lang || "";
+      return `--- 附件：${f.name}（${formatSize(f.size)}） ---\n\`\`\`${lang}\n${f.content}\n\`\`\``;
+    });
+
+    return (text ? text + "\n\n" : "") + blocks.join("\n\n");
+  }
+
+  // 气泡里只展示简短摘要，避免刷屏
+  function buildDisplayText(text, files) {
+    const lines = [];
+    if (text) lines.push(text);
+    if (files.length) {
+      lines.push(files.map((f) => `[附件] ${f.name} · ${formatSize(f.size)}`).join("\n"));
+    }
+    return lines.join("\n\n");
+  }
+
+  if (uploadBtn && fileInput) {
+    uploadBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      await addFiles(fileInput.files);
+      fileInput.value = "";
+    });
+  }
+
+  // ===== 输入框 =====
   inputEl.addEventListener("input", () => {
-    inputEl.style.height = "auto";
-    inputEl.style.height = inputEl.scrollHeight + "px";
+    autoGrow();
     const stick = isNearBottom();
     updateSpacer();
     if (stick) scrollToBottom();
   });
 
-  function setupResizeObserver(){
+  function setupResizeObserver() {
     if (!composerEl || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => {
       const stick = isNearBottom();
@@ -265,7 +522,8 @@
     });
     ro.observe(composerEl);
   }
-  function setupViewportListener(){
+
+  function setupViewportListener() {
     if (!window.visualViewport) return;
     window.visualViewport.addEventListener("resize", () => {
       const stick = isNearBottom();
@@ -273,95 +531,139 @@
       if (stick) scrollToBottom();
     });
   }
+
   window.addEventListener("resize", () => {
     const stick = isNearBottom();
     updateSpacer();
     if (stick) scrollToBottom();
   });
 
-
-  async function send(){
+  // ===== 请求 =====
+  function setStreaming(on) {
+    streaming = on;
+    sendBtn.textContent = on ? "停止" : "Send";
+    sendBtn.classList.toggle("stop", on);
+    document.body.classList.toggle("streaming", on);
+    refreshActions();
     updateSpacer();
-    const text = inputEl.value.trim();
-    if (!text) return;
+  }
 
-    const userRow = makeRow("user");
-    userRow.bubble.textContent = text;
+  function resolveErrorText(status, rawText) {
+    let message = rawText || "";
+    try {
+      const parsed = JSON.parse(rawText);
+      if (parsed && parsed.error && parsed.error.message) message = parsed.error.message;
+      else if (parsed && typeof parsed.error === "string") message = parsed.error;
+    } catch {}
+    return `请求失败（${status}）\n${message || "无详细信息"}`;
+  }
 
-    const inEst = estimateTokens(text);
-    totalInEstimate += inEst;
-    userRow.stats.textContent = `Input(估算): ≈${inEst} | Total In(估算): ≈${totalInEstimate}`;
-
-    session.push({ role: "user", content: text });
-    persistSessionIfEnabled();
-
-    inputEl.value = "";
-    inputEl.style.height = "auto";
-    updateSpacer();
-    scrollToBottom();
-
+  async function requestAI() {
     const aiRow = makeRow("assistant");
-    let outStartMs = 0;
-    let outEndMs = 0;
     let full = "";
     let exactUsage = null;
+    let outStartMs = 0;
+    let failedText = "";
+    let aborted = false;
 
-    let customPrompt = "";
-    if (!useBuiltin) {
-      if (promptEnabled) customPrompt = localStorage.getItem(LS_CUSTOM_PROMPT) || "";
-    }
-
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: modelSel.value,
-        use_builtin_persona: useBuiltin,
-        custom_system_prompt: customPrompt,
-        messages: session
-      })
-    });
-
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      aiRow.bubble.textContent = `Request failed (${res.status}):\n${t}`;
-      aiRow.stats.textContent = "";
+    const parserFactory = window.SSE && window.SSE.createSSEParser;
+    if (!parserFactory) {
+      aiRow.bubble.textContent = "前端脚本加载异常：缺少 SSE 解析器（/sse.js）。";
+      aiRow.bubble.classList.add("error");
       return;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-
-        const jsonStr = line.replace("data: ", "").trim();
-        if (!jsonStr || jsonStr === "[DONE]") continue;
-
-        try {
-          const parsed = JSON.parse(jsonStr);
-          if (parsed.usage) exactUsage = parsed.usage;
-
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            if (!outStartMs) outStartMs = performance.now();
-            full += delta;
-            aiRow.bubble.textContent = full;
-            if (isNearBottom()) scrollToBottom();
-          }
-        } catch {}
-      }
+    let customPrompt = "";
+    if (!useBuiltin && promptEnabled) {
+      customPrompt = localStorage.getItem(LS_CUSTOM_PROMPT) || "";
     }
 
-    outEndMs = performance.now();
-    session.push({ role: "assistant", content: full });
+    abortController = new AbortController();
+    setStreaming(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: modelSel.value,
+          use_builtin_persona: useBuiltin,
+          custom_system_prompt: customPrompt,
+          messages: session.map((m) => ({ role: m.role, content: m.content }))
+        }),
+        signal: abortController.signal
+      });
+
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        failedText = resolveErrorText(res.status, raw);
+        aiRow.bubble.textContent = failedText;
+        aiRow.bubble.classList.add("error");
+        return;
+      }
+
+      if (!res.body) {
+        failedText = "请求失败：响应没有可读取的流。";
+        aiRow.bubble.textContent = failedText;
+        aiRow.bubble.classList.add("error");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      const parser = parserFactory((event) => {
+        if (event.usage) exactUsage = event.usage;
+        const delta = event.choices && event.choices[0] && event.choices[0].delta && event.choices[0].delta.content;
+        if (delta) {
+          if (!outStartMs) outStartMs = performance.now();
+          full += delta;
+          aiRow.bubble.textContent = full;
+          if (isNearBottom()) scrollToBottom();
+        }
+      });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.feed(decoder.decode(value, { stream: true }));
+      }
+
+      parser.feed(decoder.decode());
+      parser.flush();
+    } catch (err) {
+      aborted = err && err.name === "AbortError";
+      if (!aborted) {
+        failedText = `请求失败\n${(err && err.message) || String(err)}`;
+        aiRow.bubble.textContent = full
+          ? full + "\n\n[连接中断] " + ((err && err.message) || "")
+          : failedText;
+        aiRow.bubble.classList.add("error");
+      }
+    } finally {
+      abortController = null;
+      setStreaming(false);
+    }
+
+    const outEndMs = performance.now();
+
+    if (!full) {
+      if (aborted) {
+        aiRow.bubble.textContent = failedText || "已停止，未产生内容。";
+      } else if (!failedText) {
+        aiRow.bubble.textContent = "上游没有返回任何内容。";
+        aiRow.bubble.classList.add("error");
+      }
+      updateSpacer();
+      refreshActions();
+      return;
+    }
+
+    // 只有拿到内容才写入会话，避免污染上下文
+    session.push({ role: "assistant", content: full, display: "" });
+    session[session.length - 1].el = aiRow.row;
+    aiRow.bubble.classList.remove("error");
+    if (aborted) aiRow.bubble.textContent = full + "\n\n[已停止]";
     persistSessionIfEnabled();
 
     const seconds = Math.max(0.001, (outEndMs - (outStartMs || outEndMs)) / 1000);
@@ -375,36 +677,113 @@
       totalCompletionTokens += c;
 
       const tps = c / seconds;
-
       aiRow.stats.textContent =
         `Prompt: ${p} | Completion: ${c} | Total: ${t} | Speed: ${tps.toFixed(2)} tok/s | CumPrompt: ${totalPromptTokens} | CumCompletion: ${totalCompletionTokens}`;
     } else {
       const outEst = estimateTokens(full);
       totalOutEstimate += outEst;
       const tps = outEst / seconds;
-
       aiRow.stats.textContent =
         `Output(估算): ≈${outEst} | Total Out(估算): ≈${totalOutEstimate} | Speed(估算): ${tps.toFixed(2)} tok/s | (usage未返回)`;
     }
 
     updateSpacer();
     scrollToBottom();
+    refreshActions();
   }
 
-  sendBtn.addEventListener("click", send);
+  async function send() {
+    if (streaming) return;
+
+    const typed = inputEl.value.trim();
+    if (!typed && !pendingFiles.length) return;
+
+    const files = pendingFiles.slice();
+    const payloadText = buildPayloadText(typed, files);
+    const displayText = buildDisplayText(typed, files);
+
+    inputEl.value = "";
+    autoGrow();
+    pendingFiles = [];
+    renderAttachments();
+
+    const userRow = makeRow("user");
+    userRow.bubble.textContent = displayText;
+
+    const inEst = estimateTokens(payloadText);
+    totalInEstimate += inEst;
+    userRow.stats.textContent = `Input(估算): ≈${inEst} | Total In(估算): ≈${totalInEstimate}`;
+
+    const msg = { role: "user", content: payloadText, display: files.length ? displayText : "" };
+    session.push(msg);
+    msg.el = userRow.row;
+
+    persistSessionIfEnabled();
+    updateSpacer();
+    scrollToBottom();
+
+    await requestAI();
+  }
+
+  async function regenerate() {
+    if (streaming) return;
+
+    // 找到最后一条 assistant，把它及其之后的内容全部丢弃
+    let lastAssistantIdx = -1;
+    for (let i = session.length - 1; i >= 0; i--) {
+      if (session[i].role === "assistant") { lastAssistantIdx = i; break; }
+    }
+
+    const lastMsg = session[session.length - 1];
+    if (lastAssistantIdx === -1 && (!lastMsg || lastMsg.role !== "user")) {
+      toast("没有可重新生成的内容");
+      return;
+    }
+
+    if (lastAssistantIdx !== -1) {
+      for (let i = lastAssistantIdx; i < session.length; i++) {
+        const el = session[i].el;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }
+      session.splice(lastAssistantIdx);
+    }
+
+    // 清掉没有进入会话的报错气泡
+    const known = new Set(session.map((m) => m.el).filter(Boolean));
+    chatEl.querySelectorAll(".row.ai").forEach((row) => {
+      if (!known.has(row)) row.remove();
+    });
+
+    persistSessionIfEnabled();
+    updateSpacer();
+    scrollToBottom();
+    await requestAI();
+  }
+
+  sendBtn.addEventListener("click", () => {
+    if (streaming) {
+      if (abortController) abortController.abort();
+      return;
+    }
+    send();
+  });
+
   inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      send();
+      if (!streaming) send();
     }
   });
 
-  function init(){
+  function init() {
     initModels();
     setupResizeObserver();
     setupViewportListener();
+    renderAttachments();
+    autoGrow();
     updateSpacer();
     restoreSessionIfEnabled();
+    refreshActions();
     scrollToBottom();
   }
 

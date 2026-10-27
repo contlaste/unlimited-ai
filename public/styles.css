@@ -488,10 +488,179 @@ button#sendBtn:hover{
   line-height:1.5;
 }
 
+/* ===== 消息操作（复制 / 重新生成） ===== */
+.actions{
+  display:flex;
+  gap:8px;
+  padding:0 4px;
+  opacity:0;
+  transition:opacity .15s;
+}
+
+.row.ai:hover .actions,
+.row.ai .actions:focus-within{
+  opacity:1;
+}
+
+.act{
+  border:1px solid #2a2a2a;
+  background:#141414;
+  color:#cfcfcf;
+  border-radius:10px;
+  padding:4px 10px;
+  font-size:12px;
+  line-height:1.4;
+  cursor:pointer;
+  transition:.15s;
+}
+
+.act:hover{
+  background:#1b1b1b;
+  color:#fff;
+}
+
+.act:disabled{
+  opacity:.35;
+  cursor:not-allowed;
+}
+
+.bubble.error{
+  border-color:#5a2a2a;
+  background:#1a1010;
+  color:#f0c2c2;
+}
+
+/* ===== 输入区：附件按钮 / chips ===== */
+.attach-btn{
+  flex:0 0 34px;
+  width:34px;
+  height:34px;
+  border-radius:999px;
+  border:1px solid #4a4a4a;
+  background:var(--btn-bg);
+  color:#fff;
+  font-size:21px;
+  line-height:1;
+  font-family:inherit;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:.15s;
+}
+
+.attach-btn:hover{
+  background:var(--btn-bg-hover);
+}
+
+.composer-col{
+  flex:1;
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+#composer textarea#msg{
+  flex:0 0 auto;
+  width:100%;
+}
+
+.attachments{
+  display:none;
+  flex-wrap:wrap;
+  gap:6px;
+  padding:2px 4px 0 4px;
+}
+
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  max-width:100%;
+  border:1px solid #444;
+  background:#1b1b1b;
+  border-radius:999px;
+  padding:3px 6px 3px 10px;
+  font-size:12px;
+  color:#d8d8d8;
+}
+
+.chip-name{
+  max-width:180px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.chip-x{
+  border:none;
+  background:transparent;
+  color:#9a9a9a;
+  font-size:12px;
+  cursor:pointer;
+  padding:0 2px;
+  line-height:1;
+}
+
+.chip-x:hover{
+  color:#fff;
+}
+
+button#sendBtn.stop{
+  background:#7a2b2b;
+}
+
+button#sendBtn.stop:hover{
+  background:#953333;
+}
+
+/* ===== Toast ===== */
+#toast{
+  position:fixed;
+  left:50%;
+  bottom:calc(var(--composer-gap) + 78px);
+  transform:translateX(-50%) translateY(8px);
+  max-width:80vw;
+  padding:8px 14px;
+  border-radius:12px;
+  border:1px solid #333;
+  background:rgba(20,20,20,.96);
+  color:#eee;
+  font-size:13px;
+  text-align:center;
+  opacity:0;
+  pointer-events:none;
+  transition:.2s;
+  z-index:40;
+}
+
+#toast.show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+
+@media (hover:none){
+  .actions{
+    opacity:1;
+  }
+}
+
 @media (max-width:768px){
   :root{
     --composer-gap:12px;
     --content-side:10px;
+  }
+
+  .attach-btn{
+    flex:0 0 32px;
+    width:32px;
+    height:32px;
+    font-size:19px;
+  }
+
+  .chip-name{
+    max-width:120px;
   }
 
   .topbar-shell{
