@@ -6,7 +6,7 @@
   "description": "Cloudflare Workers 上的极简 AI 聊天前端（代理 NVIDIA 兼容 OpenAI 接口）",
   "scripts": {
     "dev": "node dev-server.mjs",
-    "test": "node test/run-tests.mjs && node test/dom-test.mjs",
+    "test": "node test/run-tests.mjs && node test/docs-test.mjs && node test/dom-test.mjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

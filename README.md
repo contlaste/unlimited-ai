@@ -8,7 +8,7 @@ Cloudflare Workers 上的极简 AI 聊天前端，把请求代理到 NVIDIA 的�
 - 流式输出 + 精确 token 统计（上游返回 usage 时显示 prompt/completion/speed，否则给出估算值）
 - 生成中可点 **停止** 中断（同时取消上游请求，避免继续计费）
 - 每条回复支持 **复制**；最后一条支持 **重新生成**（丢弃该条回复后重新请求，不会重复添加提问）
-- 输入框 **+** 可上传文本类文件（txt / md / 代码 / json / csv / 日志等），作为附件正文随消息一起发给模型
+- 输入框 **+** 可上传文本文件（txt / md / 代码 / json / csv / 日志等）和 **Word 文档（.docx / .docm / .doc）**，正文会被提取后随消息发给模型
 - 😈 使用内置人格模板；😇 使用网页端自定义 system prompt
 - 本地对话记忆与自定义模板分开存储，可分别清除
 - 打赏入口
@@ -21,6 +21,7 @@ src/config.js        模型列表、默认模型、内置人格模板（要改�
 public/index.html    页面结构
 public/app.js        前端全部逻辑
 public/sse.js        带缓冲的 SSE 解析器（跨 chunk 拆行也能正确解析）
+public/docs.js       零依赖 Word 正文提取（docx 解 zip+XML，doc 解 OLE2 片段表）
 public/styles.css    样式（暗色主题，CSS 变量驱动）
 dev-server.mjs       本地联调用的零依赖服务器
 test/                自测脚本
@@ -47,8 +48,8 @@ wrangler deploy
 | 内置人格 | `src/config.js` → `PROMPT_1` ~ `PROMPT_4` |
 | 上下文条数/字数上限 | `src/worker.js` → `MAX_MESSAGES` / `MAX_TOTAL_CHARS` / `MAX_MESSAGE_CHARS` |
 | 限流 | `src/worker.js` → `RATE_MAX` / `RATE_WINDOW_MS` |
-| 附件大小与数量 | `public/app.js` → `MAX_FILES` / `MAX_FILE_BYTES` / `MAX_TOTAL_FILE_BYTES` |
-| 允许的附件类型 | `public/app.js` → `TEXT_EXT` 与 `index.html` 里 `input[type=file]` 的 `accept` |
+| 附件数量与字数 | `public/app.js` → `MAX_FILES` / `MAX_FILE_CHARS` / `MAX_TOTAL_ATTACH_CHARS` |
+| 允许的附件类型 | 文本：`public/app.js` → `TEXT_EXT`；Word：`public/docs.js` → `detectWordKind`；两处都要同步 `index.html` 的 `accept` |
 
 ## 本地联调
 
@@ -66,9 +67,10 @@ NVIDIA_API_KEY=sk-xxx node dev-server.mjs
 
 ```bash
 npm i        # 只为测试装 jsdom，部署不需要
-npm test     # = 下面两条
-node test/run-tests.mjs    # 24 项：SSE 解析器 + Worker 路由/校验/限流
-node test/dom-test.mjs     # 12 项：jsdom 里跑真实前端交互（发送/停止/重新生成/上传）
+npm test     # = 下面三条
+node test/run-tests.mjs    # 29 项：SSE 解析器 + Worker 路由/校验/限流/524 重试
+node test/docs-test.mjs    # 14 项：docx / doc 正文提取（样本由 test/fixtures.mjs 现场构造）
+node test/dom-test.mjs     # 14 项：jsdom 里跑真实前端交互（发送/停止/重新生成/上传）
 ```
 
 ## 常见错误

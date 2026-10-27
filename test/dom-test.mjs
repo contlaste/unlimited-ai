@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { makeDocx } from "./fixtures.mjs";
 
 // jsdom 只用于本地测试：npm i 后即可解析
 const require = createRequire(import.meta.url);
@@ -10,6 +11,7 @@ const { JSDOM } = require("jsdom");
 
 const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 const sseSrc = readFileSync(new URL("../public/sse.js", import.meta.url), "utf8");
+const docsSrc = readFileSync(new URL("../public/docs.js", import.meta.url), "utf8");
 const appSrc = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 
 let passed = 0;
@@ -88,6 +90,7 @@ function boot() {
   ];
 
   win.eval(sseSrc);
+  win.eval(docsSrc);
   win.eval(appSrc);
 
   return {
@@ -210,6 +213,54 @@ await ok("上传文本文件：正文进入请求、气泡只显示摘要", asyn
   assert.match(bubble, /\[附件\] note\.md/);
   assert.doesNotMatch(bubble, /line1/);
   assert.equal(doc.querySelectorAll("#attachments .chip").length, 0, "发送后清空附件");
+});
+
+await ok("上传 docx：提取正文发给模型，气泡只显示字数", async () => {
+  const { win, doc, requests } = boot();
+
+  const bytes = makeDocx(["我是 Word 里的第一段", "第二段"], { deflate: false });
+  const file = new win.File([bytes], "会议纪要.docx", {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  });
+  if (typeof file.arrayBuffer !== "function") {
+    Object.defineProperty(file, "arrayBuffer", { value: async () => bytes.buffer });
+  }
+
+  const input = doc.getElementById("fileInput");
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(80);
+
+  const chips = doc.querySelectorAll("#attachments .chip");
+  assert.equal(chips.length, 1);
+  assert.match(chips[0].textContent, /会议纪要\.docx/);
+
+  await sendText(win, doc, "总结一下这个文档");
+
+  const sent = requests[0].body.messages[0].content;
+  assert.match(sent, /总结一下这个文档/);
+  assert.match(sent, /我是 Word 里的第一段/);
+  assert.match(sent, /Word 文档，已提取正文 \d+ 字/);
+  assert.doesNotMatch(sent, /PK\u0003\u0004/, "不应把 zip 二进制塞进去");
+
+  const bubble = doc.querySelector("#chat .row.user .bubble").textContent;
+  assert.match(bubble, /\[附件\] 会议纪要\.docx · Word · \d+ 字/);
+});
+
+await ok("损坏的 docx 给出可读错误且不加入附件", async () => {
+  const { win, doc } = boot();
+  const file = new win.File([new Uint8Array([1, 2, 3, 4, 5])], "坏文件.docx", { type: "" });
+  if (typeof file.arrayBuffer !== "function") {
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new Uint8Array([1, 2, 3, 4, 5]).buffer });
+  }
+
+  const input = doc.getElementById("fileInput");
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(80);
+
+  assert.equal(doc.querySelectorAll("#attachments .chip").length, 0);
+  assert.match(doc.getElementById("toast").textContent, /解析失败/);
 });
 
 await ok("非文本文件被忽略", async () => {

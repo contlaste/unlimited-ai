@@ -50,10 +50,10 @@
 
   <div class="input-floating">
     <div class="input-inner" id="composer">
-      <button class="attach-btn" id="uploadBtn" type="button" title="添加文本文件（txt / md / 代码等）">+</button>
+      <button class="attach-btn" id="uploadBtn" type="button" title="添加附件（txt / md / 代码 / Word 文档）">+</button>
       <div class="composer-col">
         <div id="attachments" class="attachments"></div>
-        <textarea id="msg" rows="1" placeholder="Message...（+ 可上传文本文件）"></textarea>
+        <textarea id="msg" rows="1" placeholder="Message...（+ 可上传文本或 Word 文档）"></textarea>
       </div>
       <button id="sendBtn" type="button">Send</button>
     </div>
@@ -62,7 +62,7 @@
       id="fileInput"
       multiple
       hidden
-      accept=".txt,.text,.md,.markdown,.mdx,.json,.jsonc,.json5,.js,.mjs,.cjs,.jsx,.ts,.tsx,.vue,.svelte,.py,.rb,.php,.java,.kt,.swift,.go,.rs,.c,.h,.cc,.cpp,.hpp,.cs,.pl,.lua,.r,.scala,.sh,.bash,.zsh,.bat,.ps1,.cmd,.sql,.csv,.tsv,.log,.html,.htm,.xml,.css,.scss,.sass,.less,.yml,.yaml,.ini,.conf,.cfg,.toml,.env,.properties,.gradle,.srt,.vtt,.tex,text/*"
+      accept=".txt,.text,.md,.markdown,.mdx,.json,.jsonc,.json5,.js,.mjs,.cjs,.jsx,.ts,.tsx,.vue,.svelte,.py,.rb,.php,.java,.kt,.swift,.go,.rs,.c,.h,.cc,.cpp,.hpp,.cs,.pl,.lua,.r,.scala,.sh,.bash,.zsh,.bat,.ps1,.cmd,.sql,.csv,.tsv,.log,.html,.htm,.xml,.css,.scss,.sass,.less,.yml,.yaml,.ini,.conf,.cfg,.toml,.env,.properties,.gradle,.srt,.vtt,.tex,.doc,.docx,.docm,text/*,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-word"
     />
   </div>
 
@@ -143,6 +143,7 @@
 
 <script src="/config.js"></script>
 <script src="/sse.js"></script>
+<script src="/docs.js"></script>
 <script src="/app.js"></script>
 <script>
   window.addEventListener("load", function () {

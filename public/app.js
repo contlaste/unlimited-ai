@@ -36,10 +36,11 @@
     { id: "openai/gpt-oss-120b", label: "gpt-oss-120b" },
   ]);
 
-  // ====== 文本附件限制（故意保守：附件会被完整塞进 prompt，太大会让上游 prefill 超时）======
+  // ====== 附件限制（故意保守：附件会被完整塞进 prompt，太大会让上游 prefill 超时）======
   const MAX_FILES = 3;
-  const MAX_FILE_BYTES = 40 * 1024;
-  const MAX_TOTAL_FILE_BYTES = 60 * 1024;
+  const MAX_FILE_CHARS = 40000;          // 单个附件「提取后」的字数上限
+  const MAX_TOTAL_ATTACH_CHARS = 60000;  // 所有附件提取后的合计字数
+  const MAX_RAW_BYTES = 8 * 1024 * 1024; // 原始文件体积上限（docx 体积大但正文未必多）
   const WARN_PAYLOAD_CHARS = 40000;
   const TEXT_EXT = /\.(txt|text|md|markdown|mdx|json|jsonc|json5|js|mjs|cjs|jsx|ts|tsx|vue|svelte|py|rb|php|java|kt|swift|go|rs|c|h|cc|cpp|hpp|cs|m|mm|pl|lua|r|jl|scala|sh|bash|zsh|bat|ps1|cmd|sql|csv|tsv|log|html|htm|xml|css|scss|sass|less|yml|yaml|ini|conf|cfg|toml|env|properties|gradle|dockerfile|makefile|gitignore|srt|vtt|tex)$/i;
   const TEXT_MIME = /^(text\/|application\/(json|xml|x-yaml|yaml|x-sh|x-httpd-php|sql|javascript|typescript|x-javascript|x-python|x-ruby|x-shellscript|toml|rtf))/i;
@@ -364,13 +365,20 @@
   donateClose.addEventListener("click", closeDonate);
   donateMask.addEventListener("click", (e) => { if (e.target === donateMask) closeDonate(); });
 
-  // ===== 文本附件 =====
-  function isProbablyText(file) {
-    if (TEXT_EXT.test(file.name)) return true;
-    if (file.type && TEXT_MIME.test(file.type)) return true;
-    if (!file.type) return true; // 无 MIME 的多为代码/纯文本
-    return false;
+  // ===== 附件：纯文本 / Word =====
+  // 返回 "text" | "docx" | "doc" | null
+  function resolveKind(file) {
+    if (window.DOCS) {
+      const word = window.DOCS.detectWordKind(file.name, file.type);
+      if (word) return word;
+    }
+    if (TEXT_EXT.test(file.name)) return "text";
+    if (file.type && TEXT_MIME.test(file.type)) return "text";
+    if (!file.type) return "text"; // 无 MIME 的多为代码/纯文本
+    return null;
   }
+
+  const KIND_LABEL = { text: "文本", docx: "Word", doc: "Word" };
 
   function guessLang(name) {
     const ext = (name.split(".").pop() || "").toLowerCase();
@@ -405,7 +413,9 @@
       const name = document.createElement("span");
       name.className = "chip-name";
       name.textContent = f.name;
-      name.title = `${f.name} · ${formatSize(f.size)}`;
+      name.title = f.kind === "text"
+        ? `${f.name} · ${formatSize(f.size)}`
+        : `${f.name} · ${formatSize(f.size)} · 提取 ${f.chars} 字`;
 
       const remove = document.createElement("button");
       remove.type = "button";
@@ -426,7 +436,7 @@
 
   async function addFiles(fileList) {
     const files = Array.from(fileList || []);
-    let totalBytes = pendingFiles.reduce((sum, f) => sum + f.size, 0);
+    let totalChars = pendingFiles.reduce((sum, f) => sum + f.chars, 0);
     let skipped = 0;
 
     for (const file of files) {
@@ -434,43 +444,70 @@
         toast(`最多同时上传 ${MAX_FILES} 个文件`);
         break;
       }
-      if (!isProbablyText(file)) {
+
+      const kind = resolveKind(file);
+      if (!kind) {
         skipped++;
         continue;
       }
-      if (file.size > MAX_FILE_BYTES) {
-        toast(`${file.name} 超过 ${formatSize(MAX_FILE_BYTES)}，已跳过`);
+
+      if (file.size > MAX_RAW_BYTES) {
+        toast(`${file.name} 超过 ${formatSize(MAX_RAW_BYTES)}，已跳过`);
         continue;
-      }
-      if (totalBytes + file.size > MAX_TOTAL_FILE_BYTES) {
-        toast(`附件总大小超过 ${formatSize(MAX_TOTAL_FILE_BYTES)}，已跳过`);
-        break;
       }
 
       let content = "";
       try {
-        content = await file.text();
-      } catch {
-        toast(`${file.name} 读取失败`);
+        if (kind === "text") {
+          content = await file.text();
+          // 含 NUL 字节基本可判定为二进制
+          if (content.indexOf("\u0000") !== -1) {
+            skipped++;
+            continue;
+          }
+        } else {
+          if (!window.DOCS) {
+            toast("文档解析模块未加载（/docs.js）");
+            continue;
+          }
+          content = await window.DOCS.extractWord(await file.arrayBuffer(), kind);
+        }
+      } catch (err) {
+        toast(`${file.name} 解析失败：${(err && err.message) || err}`);
         continue;
       }
 
-      // 含 NUL 字节基本可判定为二进制
-      if (content.indexOf("\u0000") !== -1) {
-        skipped++;
+      if (!content || !content.trim()) {
+        toast(`${file.name} 里没有提取到文字`);
         continue;
+      }
+
+      let truncated = false;
+      if (content.length > MAX_FILE_CHARS) {
+        content = content.slice(0, MAX_FILE_CHARS);
+        truncated = true;
+      }
+
+      if (totalChars + content.length > MAX_TOTAL_ATTACH_CHARS) {
+        toast(`附件合计超过 ${MAX_TOTAL_ATTACH_CHARS} 字，已跳过 ${file.name}`);
+        break;
       }
 
       pendingFiles.push({
         name: file.name,
+        kind,
         size: file.size,
         content,
-        lang: guessLang(file.name)
+        chars: content.length,
+        truncated,
+        lang: kind === "text" ? guessLang(file.name) : ""
       });
-      totalBytes += file.size;
+      totalChars += content.length;
+
+      if (truncated) toast(`${file.name} 内容较长，只取前 ${MAX_FILE_CHARS} 字`);
     }
 
-    if (skipped) toast(`已忽略 ${skipped} 个非文本文件`);
+    if (skipped) toast(`已忽略 ${skipped} 个不支持的文件`);
 
     renderAttachments();
     updateSpacer();
@@ -481,6 +518,10 @@
     if (!files.length) return text;
 
     const blocks = files.map((f) => {
+      if (f.kind !== "text") {
+        const note = f.truncated ? "，超长部分已截断" : "";
+        return `--- 附件：${f.name}（Word 文档，已提取正文 ${f.chars} 字${note}） ---\n${f.content}`;
+      }
       const lang = f.lang || "";
       return `--- 附件：${f.name}（${formatSize(f.size)}） ---\n\`\`\`${lang}\n${f.content}\n\`\`\``;
     });
@@ -493,7 +534,15 @@
     const lines = [];
     if (text) lines.push(text);
     if (files.length) {
-      lines.push(files.map((f) => `[附件] ${f.name} · ${formatSize(f.size)}`).join("\n"));
+      lines.push(
+        files
+          .map((f) =>
+            f.kind === "text"
+              ? `[附件] ${f.name} · ${formatSize(f.size)}`
+              : `[附件] ${f.name} · ${KIND_LABEL[f.kind]} · ${f.chars} 字`
+          )
+          .join("\n")
+      );
     }
     return lines.join("\n\n");
   }
