@@ -531,12 +531,32 @@
     presetKeepEl.checked = presetEnabled;
   }
 
-  function openSettings() {
+  function openSettings(focusPreset) {
     settingsMask.style.display = "flex";
+    document.body.classList.add("modal-open");
     historyKeepEl.checked = historyEnabled;
     promptKeepEl.checked = promptEnabled;
     customPromptEl.value = (localStorage.getItem(LS_CUSTOM_PROMPT) || "");
     renderPresetEditor();
+
+    if (focusPreset) {
+      // 从顶栏「管理预设」进来时直接定位到预设卡片，不用在长面板里翻
+      const scrollToPreset = () => {
+        try {
+          const card = $("presetCard");
+          if (card && typeof card.scrollIntoView === "function") {
+            card.scrollIntoView({ block: "start" });
+          }
+        } catch {}
+      };
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(scrollToPreset);
+      else setTimeout(scrollToPreset, 0);
+    }
+  }
+
+  function closeSettings() {
+    settingsMask.style.display = "none";
+    document.body.classList.remove("modal-open");
   }
 
   function makePresetId() {
@@ -600,18 +620,22 @@
     localStorage.setItem(LS_USE_BUILTIN, useBuiltin ? "1" : "0");
   });
 
-  settingsBtn.addEventListener("click", openSettings);
-  closeSettingsBtn.addEventListener("click", () => {
-    settingsMask.style.display = "none";
-  });
+  settingsBtn.addEventListener("click", () => openSettings());
+  closeSettingsBtn.addEventListener("click", closeSettings);
   settingsMask.addEventListener("click", (e) => {
-    if (e.target === settingsMask) settingsMask.style.display = "none";
+    if (e.target === settingsMask) closeSettings();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeSettings();
+      closeDonate();
+    }
   });
 
   presetSel.addEventListener("change", () => {
     if (presetSel.value === "__manage__") {
       presetSel.value = activePresetId;
-      openSettings();
+      openSettings(true);
       return;
     }
     selectPreset(presetSel.value);
@@ -664,7 +688,7 @@
     const val = customPromptEl.value || "";
     if (promptEnabled) localStorage.setItem(LS_CUSTOM_PROMPT, val);
     else localStorage.removeItem(LS_CUSTOM_PROMPT);
-    settingsMask.style.display = "none";
+    closeSettings();
   });
   clearPromptBtn.addEventListener("click", () => {
     const ok = confirm("确定清除网页自定义人物模板？\n只会删除自定义模板，不会影响本地历史。");

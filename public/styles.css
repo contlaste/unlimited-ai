@@ -383,15 +383,30 @@ button#sendBtn:hover{
   justify-content:center;
   z-index:10;
   padding:16px;
+  overscroll-behavior:contain;
 }
 
+/* 弹窗自己承担滚动：内容超过屏幕时不再被裁掉，也不会把滑动传给背后的聊天区 */
 #settings{
   width:min(760px,92vw);
+  max-height:calc(100vh - 32px);
+  max-height:calc(100dvh - 32px);
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
   border:1px solid #2a2a2a;
   background:#0f0f0f;
   border-radius:18px;
   box-shadow:0 30px 80px rgba(0,0,0,.6);
   padding:14px;
+}
+
+#settings textarea{
+  overscroll-behavior:contain;
+}
+
+body.modal-open{
+  overflow:hidden;
 }
 
 #settingsHeader{
@@ -774,6 +789,31 @@ button#sendBtn.stop:hover{
 
   .chip-name{
     max-width:120px;
+  }
+
+  /* 手机端：弹窗从顶部开始排，内容高时仍可整体上下滑 */
+  #settingsMask{
+    padding:10px;
+    align-items:flex-start;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  #settings{
+    width:100%;
+    max-height:none;
+    overflow:visible;
+    padding:12px;
+    margin:auto 0;
+  }
+
+  #settingsHeader{
+    flex-wrap:wrap;
+  }
+
+  #customPrompt,
+  #presetContent{
+    min-height:120px;
   }
 
   .topbar-shell{

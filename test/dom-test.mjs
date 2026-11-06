@@ -486,4 +486,50 @@ await ok("切换为「不使用」后不再发送预设", async () => {
   assert.equal(requests[0].body.persistent_prompt, "");
 });
 
+await ok("设置弹窗自身可滚动且阻断滚动穿透（CSS）", () => {
+  const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+  assert.match(css, /#settings\{[^}]*overflow-y:auto/s, "弹窗内要有 overflow-y:auto");
+  assert.match(css, /#settings\{[^}]*max-height:calc\(100dvh/s, "要有 dvh 高度上限");
+  assert.match(css, /overscroll-behavior:contain/, "要阻断滚动穿透");
+  assert.match(css, /@media \(max-width:768px\)\{[\s\S]*#settingsMask\{[^}]*overflow-y:auto/s, "手机端遮罩要能滚");
+  assert.match(css, /body\.modal-open\{[^}]*overflow:hidden/s, "打开时锁背景滚动");
+});
+
+await ok("打开/关闭设置会锁定与恢复背景滚动", () => {
+  const { win, doc } = boot();
+  const mask = doc.getElementById("settingsMask");
+
+  doc.getElementById("settingsBtn").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  assert.equal(mask.style.display, "flex");
+  assert.ok(doc.body.classList.contains("modal-open"));
+
+  doc.getElementById("closeSettings").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  assert.equal(mask.style.display, "none");
+  assert.ok(!doc.body.classList.contains("modal-open"));
+});
+
+await ok("点遮罩与 ESC 也能关闭并解锁", () => {
+  const { win, doc } = boot();
+  const mask = doc.getElementById("settingsMask");
+
+  doc.getElementById("settingsBtn").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  mask.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  assert.equal(mask.style.display, "none");
+  assert.ok(!doc.body.classList.contains("modal-open"));
+
+  doc.getElementById("settingsBtn").dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  doc.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.equal(mask.style.display, "none");
+  assert.ok(!doc.body.classList.contains("modal-open"));
+});
+
+await ok("顶栏「管理预设」直接打开设置面板", () => {
+  const { win, doc } = boot();
+  const sel = doc.getElementById("presetSel");
+  sel.value = "__manage__";
+  sel.dispatchEvent(new win.Event("change", { bubbles: true }));
+  assert.equal(doc.getElementById("settingsMask").style.display, "flex");
+  assert.ok(doc.getElementById("presetCard"), "预设卡片存在");
+});
+
 console.log(`\n${passed} 项通过${failures.length ? "，失败：" + failures.join(" / ") : ""}\n`);
