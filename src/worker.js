@@ -15,6 +15,8 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_MESSAGES = 60;
 const MAX_MESSAGE_CHARS = 60000;
 const MAX_TOTAL_CHARS = 400000;
+// 持续预设的长度上限（与 custom_system_prompt 分开，互不挤占）
+const MAX_PERSISTENT_PROMPT_CHARS = 8000;
 // 等待上游「响应头」的最长时间；超过就主动放弃，避免浏览器干等
 // 注意：上游自己在 ~100 秒就会返回 524，这里设 120 秒是为了兜住「连接挂住但没有任何响应」的情况
 const UPSTREAM_HEADER_TIMEOUT_MS = 120000;
@@ -159,6 +161,12 @@ async function handleChat(request, env) {
       ? payload.custom_system_prompt.trim().slice(0, 20000)
       : "";
 
+  // 用户在对话期间启用的持续预设：无论 😈/😇 都生效
+  const persistentPrompt =
+    typeof payload?.persistent_prompt === "string"
+      ? payload.persistent_prompt.trim().slice(0, MAX_PERSISTENT_PROMPT_CHARS)
+      : "";
+
   const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
   const messages = prepareMessages(rawMessages);
 
@@ -166,18 +174,24 @@ async function handleChat(request, env) {
     return fail("缺少有效的用户消息。", 400, "no_user_message");
   }
 
+  // 合并成一条 system 消息，兼容只认首个 system 的上游
   const upstreamMessages = [];
+  const systemParts = [];
 
   if (useBuiltinPersona) {
-    upstreamMessages.push({
-      role: "system",
-      content: builtinPromptForModel(model)
-    });
+    systemParts.push(builtinPromptForModel(model));
   } else if (customSystemPrompt) {
-    upstreamMessages.push({
-      role: "system",
-      content: customSystemPrompt
-    });
+    systemParts.push(customSystemPrompt);
+  }
+
+  if (persistentPrompt) {
+    systemParts.push(
+      "## 用户在对话中启用的持续预设（每一轮都必须遵守）\n" + persistentPrompt
+    );
+  }
+
+  if (systemParts.length) {
+    upstreamMessages.push({ role: "system", content: systemParts.join("\n\n") });
   }
 
   for (const msg of messages) upstreamMessages.push(msg);

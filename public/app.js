@@ -7,7 +7,7 @@
   const historyWrap = $("history");
   const chatEl = $("chat");
   const inputEl = $("msg");
-  const composerEl = $("composer");
+  const composerEl = $("composerStack");
   const spacerEl = $("bottom-spacer");
 
   const modelSel = $("modelSel");
@@ -27,6 +27,23 @@
   const historyKeepEl = $("historyKeep");
   const clearHistoryBtn = $("clearHistory");
   const promptKeepEl = $("promptKeep");
+
+  // 持续预设
+  const presetSel = $("presetSel");
+  const presetPill = $("presetPill");
+  const presetKeepEl = $("presetKeep");
+  const presetNewBtn = $("presetNew");
+  const presetDeleteBtn = $("presetDelete");
+  const presetNameEl = $("presetName");
+  const presetContentEl = $("presetContent");
+  const presetSaveBtn = $("presetSave");
+  const presetHint = $("presetHint");
+
+  // 回退撤销条
+  const undoBar = $("undoBar");
+  const undoText = $("undoText");
+  const undoBtn = $("undoBtn");
+  const undoClose = $("undoClose");
 
   const donateBtn = $("donateBtn");
   const donateMask = $("donateMask");
@@ -51,6 +68,9 @@
   const LS_CHAT_SESSION = "cfw_chat_session_v1";
   const LS_PROMPT_ENABLED = "cfw_prompt_enabled";
   const LS_CUSTOM_PROMPT = "cfw_custom_prompt_v1";
+  const LS_PRESETS = "cfw_presets_v1";
+  const LS_PRESET_ENABLED = "cfw_preset_enabled";
+  const LS_ACTIVE_PRESET = "cfw_active_preset";
 
   const MAX_PERSIST_CHARS = 2000000;
 
@@ -58,6 +78,7 @@
   let pendingFiles = [];
   let streaming = false;
   let abortController = null;
+  let lastRollback = null;
 
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
@@ -71,6 +92,10 @@
   let promptEnabled = (localStorage.getItem(LS_PROMPT_ENABLED) ?? "1") === "1";
   historyKeepEl.checked = historyEnabled;
   promptKeepEl.checked = promptEnabled;
+
+  let presetEnabled = (localStorage.getItem(LS_PRESET_ENABLED) ?? "1") === "1";
+  let presets = presetEnabled ? loadPresets() : [];
+  let activePresetId = presetEnabled ? (localStorage.getItem(LS_ACTIVE_PRESET) || "") : "";
 
   // ===== 小工具 =====
   let toastTimer = 0;
@@ -158,11 +183,10 @@
     content.appendChild(meta);
     content.appendChild(bubble);
 
-    let actions = null;
-    if (role === "assistant") {
-      actions = document.createElement("div");
-      actions.className = "actions";
+    const actions = document.createElement("div");
+    actions.className = "actions";
 
+    if (role === "assistant") {
       const copyBtn = document.createElement("button");
       copyBtn.type = "button";
       copyBtn.className = "act act-copy";
@@ -177,9 +201,16 @@
 
       actions.appendChild(copyBtn);
       actions.appendChild(regenBtn);
-      content.appendChild(actions);
     }
 
+    const rewindBtn = document.createElement("button");
+    rewindBtn.type = "button";
+    rewindBtn.className = "act act-rewind";
+    rewindBtn.textContent = role === "user" ? "回退编辑" : "回退到此前";
+    rewindBtn.addEventListener("click", () => rollbackFromRow(row));
+    actions.appendChild(rewindBtn);
+
+    content.appendChild(actions);
     content.appendChild(stats);
 
     if (role === "user") {
@@ -214,6 +245,130 @@
       btn.disabled = streaming;
       btn.style.display = (isLast && !streaming) ? "" : "none";
     });
+
+    chatEl.querySelectorAll(".act-rewind").forEach((btn) => {
+      btn.disabled = streaming;
+    });
+  }
+
+  // ===== 一键回退 + 撤销 =====
+  function stripAttachmentLines(text) {
+    return String(text || "")
+      .split("\n")
+      .filter((line) => !line.startsWith("[附件]"))
+      .join("\n")
+      .trim();
+  }
+
+  function snapshotState() {
+    return {
+      items: session.map((m) => ({
+        role: m.role,
+        content: m.content,
+        display: m.display || "",
+        draft: m.draft || "",
+        files: (m.files || []).map((f) => ({ ...f }))
+      })),
+      pending: pendingFiles.map((f) => ({ ...f })),
+      input: inputEl.value
+    };
+  }
+
+  function rebuildChat(items) {
+    session.length = 0;
+    clearUIRows();
+
+    for (const item of items) {
+      const m = { ...item, files: (item.files || []).map((f) => ({ ...f })) };
+      session.push(m);
+      const r = makeRow(m.role === "user" ? "user" : "assistant");
+      r.bubble.textContent = (m.role === "user" && m.display) ? m.display : m.content;
+      r.stats.textContent = "";
+      m.el = r.row;
+    }
+
+    refreshActions();
+  }
+
+  function showUndo(text) {
+    undoText.textContent = text;
+    undoBar.classList.add("show");
+    updateSpacer();
+  }
+
+  function hideUndo() {
+    if (undoBar.classList.contains("show")) {
+      undoBar.classList.remove("show");
+      updateSpacer();
+    }
+    lastRollback = null;
+  }
+
+  function rollbackFromRow(row) {
+    if (streaming) {
+      toast("请先点「停止」再回退");
+      return;
+    }
+    const idx = session.findIndex((m) => m.el === row);
+    if (idx < 0) {
+      toast("这条消息不在会话记录里，无法回退");
+      return;
+    }
+    rollbackTo(idx);
+  }
+
+  function rollbackTo(idx) {
+    const snap = snapshotState();
+    const target = session[idx];
+    const removedCount = session.length - idx;
+
+    // 保留 idx 之前的行，其余（含报错产生的孤儿气泡）全部移除
+    const keepEls = new Set(session.slice(0, idx).map((m) => m.el).filter(Boolean));
+    Array.from(chatEl.querySelectorAll(".row")).forEach((row) => {
+      if (!keepEls.has(row)) row.remove();
+    });
+
+    session.splice(idx);
+
+    if (target.role === "user") {
+      // 回到这条提问之前，把原文和附件放回输入区，方便改了重发
+      inputEl.value = target.draft || stripAttachmentLines(target.display || target.content);
+      pendingFiles = (target.files || []).map((f) => ({ ...f }));
+    } else {
+      // AI 回复：保留它前面的提问，清空输入区，可点「重新生成」或直接提新问题
+      inputEl.value = "";
+      pendingFiles = [];
+    }
+
+    autoGrow();
+    renderAttachments();
+    persistSessionIfEnabled();
+    refreshActions();
+    updateSpacer();
+    scrollToBottom();
+
+    lastRollback = snap;
+    showUndo(
+      target.role === "user"
+        ? `已回退 ${removedCount} 条消息，提问和附件已放回输入区`
+        : `已回退 ${removedCount} 条消息`
+    );
+  }
+
+  function undoRollback() {
+    if (!lastRollback) return;
+    const snap = lastRollback;
+
+    rebuildChat(snap.items);
+    pendingFiles = snap.pending.map((f) => ({ ...f }));
+    renderAttachments();
+    inputEl.value = snap.input;
+    autoGrow();
+    persistSessionIfEnabled();
+    hideUndo();
+    updateSpacer();
+    scrollToBottom();
+    toast("已撤销回退");
   }
 
   async function copyText(text, btn) {
@@ -246,7 +401,9 @@
       const data = session.map((m) => ({
         role: m.role,
         content: m.content,
-        display: m.display || ""
+        display: m.display || "",
+        draft: m.draft || "",
+        files: (m.files || []).map((f) => ({ ...f }))
       }));
       const raw = JSON.stringify(data);
       if (raw.length > MAX_PERSIST_CHARS) {
@@ -275,7 +432,9 @@
         session.push({
           role: m.role,
           content: m.content,
-          display: typeof m.display === "string" ? m.display : ""
+          display: typeof m.display === "string" ? m.display : "",
+          draft: typeof m.draft === "string" ? m.draft : "",
+          files: Array.isArray(m.files) ? m.files.filter((f) => f && typeof f.content === "string") : []
         });
       }
 
@@ -307,6 +466,133 @@
     });
   }
 
+  // ===== 持续提示预设 =====
+  function loadPresets() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(LS_PRESETS) || "[]");
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .filter((p) => p && typeof p.id === "string" && typeof p.name === "string" && typeof p.content === "string")
+        .map((p) => ({ id: p.id, name: p.name, content: p.content }));
+    } catch {
+      return [];
+    }
+  }
+
+  function savePresets() {
+    try {
+      if (!presetEnabled) {
+        localStorage.removeItem(LS_PRESETS);
+        return;
+      }
+      localStorage.setItem(LS_PRESETS, JSON.stringify(presets));
+    } catch (err) {
+      console.warn("[preset] 保存失败", err);
+    }
+  }
+
+  function getActivePreset() {
+    if (!presetEnabled || !activePresetId) return null;
+    return presets.find((p) => p.id === activePresetId) || null;
+  }
+
+  function renderPresetSelect() {
+    presetSel.innerHTML = "";
+
+    const off = document.createElement("option");
+    off.value = "";
+    off.textContent = "不使用";
+    presetSel.appendChild(off);
+
+    for (const p of presets) {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name;
+      presetSel.appendChild(opt);
+    }
+
+    const manage = document.createElement("option");
+    manage.value = "__manage__";
+    manage.textContent = "＋ 管理预设…";
+    presetSel.appendChild(manage);
+
+    if (!presets.some((p) => p.id === activePresetId)) activePresetId = "";
+    presetSel.value = activePresetId;
+    presetPill.classList.toggle("active", !!activePresetId);
+  }
+
+  function renderPresetEditor() {
+    const p = getActivePreset();
+    presetNameEl.value = p ? p.name : "";
+    presetContentEl.value = p ? p.content : "";
+    presetHint.textContent = p
+      ? `当前生效：「${p.name}」，每轮请求都会带上`
+      : "未启用预设（在顶栏下拉里选一个即可生效）";
+    presetKeepEl.checked = presetEnabled;
+  }
+
+  function openSettings() {
+    settingsMask.style.display = "flex";
+    historyKeepEl.checked = historyEnabled;
+    promptKeepEl.checked = promptEnabled;
+    customPromptEl.value = (localStorage.getItem(LS_CUSTOM_PROMPT) || "");
+    renderPresetEditor();
+  }
+
+  function makePresetId() {
+    return "p_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
+  }
+
+  function selectPreset(id) {
+    activePresetId = id || "";
+    if (activePresetId) localStorage.setItem(LS_ACTIVE_PRESET, activePresetId);
+    else localStorage.removeItem(LS_ACTIVE_PRESET);
+    renderPresetSelect();
+    renderPresetEditor();
+  }
+
+  function createPreset() {
+    const p = { id: makePresetId(), name: "新预设", content: "" };
+    presets.push(p);
+    savePresets();
+    selectPreset(p.id);
+    presetNameEl.focus();
+    presetNameEl.select();
+    toast("已新建预设，填好名称和内容后点「保存预设」");
+  }
+
+  function saveCurrentPreset() {
+    const name = presetNameEl.value.trim() || "未命名预设";
+    const content = presetContentEl.value.trim();
+
+    let p = getActivePreset();
+    if (!p) {
+      p = { id: makePresetId(), name, content };
+      presets.push(p);
+    } else {
+      p.name = name;
+      p.content = content;
+    }
+
+    savePresets();
+    selectPreset(p.id);
+    toast(`已保存预设「${p.name}」，下一轮开始生效`);
+  }
+
+  function deleteCurrentPreset() {
+    const p = getActivePreset();
+    if (!p) {
+      toast("当前没有选中的预设");
+      return;
+    }
+    if (!confirm(`确定删除预设「${p.name}」？`)) return;
+
+    presets = presets.filter((x) => x.id !== p.id);
+    savePresets();
+    selectPreset("");
+    toast("预设已删除");
+  }
+
   // ===== 顶栏 / 设置 =====
   personaToggle.addEventListener("click", () => {
     useBuiltin = !useBuiltin;
@@ -314,18 +600,44 @@
     localStorage.setItem(LS_USE_BUILTIN, useBuiltin ? "1" : "0");
   });
 
-  settingsBtn.addEventListener("click", () => {
-    settingsMask.style.display = "flex";
-    historyKeepEl.checked = historyEnabled;
-    promptKeepEl.checked = promptEnabled;
-    customPromptEl.value = (localStorage.getItem(LS_CUSTOM_PROMPT) || "");
-  });
+  settingsBtn.addEventListener("click", openSettings);
   closeSettingsBtn.addEventListener("click", () => {
     settingsMask.style.display = "none";
   });
   settingsMask.addEventListener("click", (e) => {
     if (e.target === settingsMask) settingsMask.style.display = "none";
   });
+
+  presetSel.addEventListener("change", () => {
+    if (presetSel.value === "__manage__") {
+      presetSel.value = activePresetId;
+      openSettings();
+      return;
+    }
+    selectPreset(presetSel.value);
+    const p = getActivePreset();
+    toast(p ? `已启用「${p.name}」，之后每一轮都会带上` : "已关闭持续预设");
+  });
+
+  presetKeepEl.addEventListener("change", () => {
+    presetEnabled = !!presetKeepEl.checked;
+    localStorage.setItem(LS_PRESET_ENABLED, presetEnabled ? "1" : "0");
+    if (!presetEnabled) {
+      presets = [];
+      activePresetId = "";
+      localStorage.removeItem(LS_ACTIVE_PRESET);
+    }
+    savePresets();
+    renderPresetSelect();
+    renderPresetEditor();
+  });
+
+  presetNewBtn.addEventListener("click", createPreset);
+  presetSaveBtn.addEventListener("click", saveCurrentPreset);
+  presetDeleteBtn.addEventListener("click", deleteCurrentPreset);
+
+  undoBtn.addEventListener("click", undoRollback);
+  undoClose.addEventListener("click", hideUndo);
 
   historyKeepEl.addEventListener("change", () => {
     historyEnabled = !!historyKeepEl.checked;
@@ -338,6 +650,7 @@
     localStorage.removeItem(LS_CHAT_SESSION);
     session.length = 0;
     clearUIRows();
+    hideUndo();
     updateSpacer();
     scrollToBottom();
   });
@@ -630,6 +943,8 @@
       customPrompt = localStorage.getItem(LS_CUSTOM_PROMPT) || "";
     }
 
+    const activePreset = getActivePreset();
+
     abortController = new AbortController();
     setStreaming(true);
 
@@ -641,6 +956,7 @@
           model: modelSel.value,
           use_builtin_persona: useBuiltin,
           custom_system_prompt: customPrompt,
+          persistent_prompt: activePreset ? activePreset.content : "",
           messages: session.map((m) => ({ role: m.role, content: m.content }))
         }),
         signal: abortController.signal
@@ -750,6 +1066,8 @@
     const typed = inputEl.value.trim();
     if (!typed && !pendingFiles.length) return;
 
+    hideUndo();
+
     const files = pendingFiles.slice();
     const payloadText = buildPayloadText(typed, files);
     const displayText = buildDisplayText(typed, files);
@@ -770,7 +1088,13 @@
     totalInEstimate += inEst;
     userRow.stats.textContent = `Input(估算): ≈${inEst} | Total In(估算): ≈${totalInEstimate}`;
 
-    const msg = { role: "user", content: payloadText, display: files.length ? displayText : "" };
+    const msg = {
+      role: "user",
+      content: payloadText,
+      display: files.length ? displayText : "",
+      draft: typed,
+      files: files.map((f) => ({ ...f }))
+    };
     session.push(msg);
     msg.el = userRow.row;
 
@@ -783,6 +1107,7 @@
 
   async function regenerate() {
     if (streaming) return;
+    hideUndo();
 
     // 找到最后一条 assistant，把它及其之后的内容全部丢弃
     let lastAssistantIdx = -1;
@@ -833,6 +1158,8 @@
 
   function init() {
     initModels();
+    renderPresetSelect();
+    renderPresetEditor();
     setupResizeObserver();
     setupViewportListener();
     renderAttachments();

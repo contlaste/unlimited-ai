@@ -77,12 +77,14 @@ function boot() {
   win.Element.prototype.scrollTo = function () {};
   win.scrollTo = () => {};
 
+  // 每次请求都必须拿到一条全新的流；复用同一个 Response 会让第二次读到空内容
+  let defaultStream = () => makeStreamResponse(sseChunks(["Hello", " world"]));
+
   win.fetch = async (url, init) => {
     requests.push({ url, body: JSON.parse(init.body) });
     if (typeof nextResponse === "function") return nextResponse();
-    return nextResponseObj;
+    return defaultStream();
   };
-  let nextResponseObj = makeStreamResponse(sseChunks(["Hello", " world"]));
 
   win.APP_MODELS = [
     { id: "test/model-a", label: "model-a" },
@@ -98,7 +100,7 @@ function boot() {
     doc: win.document,
     requests,
     setResponse(fn) { nextResponse = fn; },
-    setStream(deltas) { nextResponse = null; nextResponseObj = makeStreamResponse(sseChunks(deltas)); }
+    setStream(deltas) { nextResponse = null; defaultStream = () => makeStreamResponse(sseChunks(deltas)); }
   };
 }
 
@@ -373,6 +375,115 @@ await ok("生成中按钮变为“停止”，点击可中断", async () => {
   btn.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
   await sleep(80);
   assert.equal(btn.textContent, "Send");
+});
+
+await ok("回退到 user 消息：删掉该条及之后，草稿与附件放回输入区", async () => {
+  const { win, doc, requests } = boot();
+
+  const file = new win.File(["附件正文ABC"], "note.txt", { type: "text/plain" });
+  if (typeof file.text !== "function") {
+    Object.defineProperty(file, "text", { value: async () => "附件正文ABC" });
+  }
+  const fileInput = doc.getElementById("fileInput");
+  Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+  fileInput.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(50);
+
+  await sendText(win, doc, "第一问");
+  await sendText(win, doc, "第二问");
+  assert.equal(rows(doc).length, 4);
+
+  doc.querySelectorAll("#chat .row.user")[0]
+    .querySelector(".act-rewind")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await sleep(30);
+
+  assert.equal(rows(doc).length, 0, "该条及其之后全部移除");
+  assert.equal(doc.getElementById("msg").value, "第一问");
+  assert.equal(doc.querySelectorAll("#attachments .chip").length, 1, "附件也要恢复");
+  assert.ok(doc.getElementById("undoBar").classList.contains("show"));
+
+  await sendText(win, doc, "第一问（改过）");
+  assert.equal(requests.at(-1).body.messages.length, 1, "上下文只剩新的这一条");
+  assert.match(requests.at(-1).body.messages[0].content, /附件正文ABC/);
+});
+
+await ok("撤销回退能完整恢复对话", async () => {
+  const { win, doc } = boot();
+  await sendText(win, doc, "第一问");
+  await sendText(win, doc, "第二问");
+  assert.equal(rows(doc).length, 4);
+
+  doc.querySelectorAll("#chat .row.user")[1]
+    .querySelector(".act-rewind")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await sleep(30);
+  assert.equal(rows(doc).length, 2);
+  assert.equal(doc.getElementById("msg").value, "第二问");
+
+  doc.getElementById("undoBtn")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await sleep(30);
+  assert.equal(rows(doc).length, 4, "四条消息都回来");
+  assert.equal(doc.getElementById("msg").value, "");
+  assert.equal(doc.getElementById("undoBar").classList.contains("show"), false);
+});
+
+await ok("回退到 AI 消息：保留它之前的提问", async () => {
+  const { win, doc } = boot();
+  await sendText(win, doc, "第一问");
+  await sendText(win, doc, "第二问");
+
+  doc.querySelectorAll("#chat .row.ai")[0]
+    .querySelector(".act-rewind")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await sleep(30);
+
+  assert.equal(rows(doc).length, 1);
+  assert.ok(rows(doc)[0].classList.contains("user"));
+  assert.equal(doc.getElementById("msg").value, "");
+});
+
+await ok("新建并启用持续预设：之后每轮请求都带上", async () => {
+  const { win, doc, requests } = boot();
+
+  doc.getElementById("settingsBtn")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  doc.getElementById("presetNew")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  doc.getElementById("presetName").value = "中文模式";
+  doc.getElementById("presetContent").value = "始终用简体中文，输出用表格";
+  doc.getElementById("presetSave")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await sleep(20);
+
+  assert.match(doc.getElementById("presetHint").textContent, /中文模式/);
+  assert.ok(doc.getElementById("presetSel").value, "下拉应选中新预设");
+  assert.ok(win.localStorage.getItem("cfw_presets_v1"), "预设应写入本地存储");
+
+  await sendText(win, doc, "第一轮");
+  assert.equal(requests[0].body.persistent_prompt, "始终用简体中文，输出用表格");
+  await sendText(win, doc, "第二轮");
+  assert.equal(requests[1].body.persistent_prompt, "始终用简体中文，输出用表格");
+});
+
+await ok("切换为「不使用」后不再发送预设", async () => {
+  const { win, doc, requests } = boot();
+
+  doc.getElementById("presetNew")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  doc.getElementById("presetContent").value = "保持简洁";
+  doc.getElementById("presetSave")
+    .dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  await sleep(20);
+
+  const sel = doc.getElementById("presetSel");
+  sel.value = "";
+  sel.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(20);
+
+  await sendText(win, doc, "hi");
+  assert.equal(requests[0].body.persistent_prompt, "");
 });
 
 console.log(`\n${passed} 项通过${failures.length ? "，失败：" + failures.join(" / ") : ""}\n`);

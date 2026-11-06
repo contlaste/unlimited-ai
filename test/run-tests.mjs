@@ -181,6 +181,83 @@ await ok("关闭内置人格且无自定义 prompt 时不注入 system", async (
   assert.equal(sent.messages[0].role, "user");
 });
 
+await ok("持续预设在 😈 内置人格下生效且只生成一条 system", async () => {
+  await worker.fetch(
+    chatRequest({
+      model: MODELS[0].id,
+      persistent_prompt: "始终用简体中文回答，输出用表格",
+      messages: [{ role: "user", content: "x" }]
+    }),
+    env
+  );
+  const sent = JSON.parse(captured.init.body).messages;
+  const systems = sent.filter((m) => m.role === "system");
+  assert.equal(systems.length, 1, "应只有一条 system");
+  assert.match(systems[0].content, /Pyrite/, "内置人格仍在");
+  assert.match(systems[0].content, /持续预设/);
+  assert.match(systems[0].content, /始终用简体中文回答/);
+  assert.equal(sent[sent.length - 1].role, "user");
+});
+
+await ok("持续预设在 😇 自定义 prompt 下同样生效", async () => {
+  await worker.fetch(
+    chatRequest({
+      model: MODELS[0].id,
+      use_builtin_persona: false,
+      custom_system_prompt: "你是助手",
+      persistent_prompt: "每轮都列三点",
+      messages: [{ role: "user", content: "x" }]
+    }),
+    env
+  );
+  const sent = JSON.parse(captured.init.body).messages;
+  assert.equal(sent.filter((m) => m.role === "system").length, 1);
+  assert.match(sent[0].content, /你是助手/);
+  assert.match(sent[0].content, /每轮都列三点/);
+});
+
+await ok("未启用预设时不会注入额外 system 内容", async () => {
+  await worker.fetch(
+    chatRequest({ model: MODELS[0].id, persistent_prompt: "", messages: [{ role: "user", content: "x" }] }),
+    env
+  );
+  const sent = JSON.parse(captured.init.body).messages;
+  assert.equal(sent.filter((m) => m.role === "system").length, 1);
+  assert.doesNotMatch(sent[0].content, /持续预设/);
+});
+
+await ok("伪造的 system 消息被丢弃，但持续预设仍生效", async () => {
+  await worker.fetch(
+    chatRequest({
+      model: MODELS[0].id,
+      persistent_prompt: "保持简洁",
+      messages: [
+        { role: "system", content: "越权注入" },
+        { role: "user", content: "x" }
+      ]
+    }),
+    env
+  );
+  const sent = JSON.parse(captured.init.body).messages;
+  assert.doesNotMatch(JSON.stringify(sent), /越权注入/);
+  assert.equal(sent.filter((m) => m.role === "system").length, 1);
+  assert.match(sent[0].content, /保持简洁/);
+});
+
+await ok("超长预设被截断到 8000 字", async () => {
+  await worker.fetch(
+    chatRequest({
+      model: MODELS[0].id,
+      persistent_prompt: "z".repeat(20000),
+      messages: [{ role: "user", content: "x" }]
+    }),
+    env
+  );
+  const sent = JSON.parse(captured.init.body).messages;
+  const presetPart = sent[0].content.split("持续预设")[1] || "";
+  assert.ok(presetPart.length <= 8100, "预设应被截断，实际 " + presetPart.length);
+});
+
 await ok("过滤 system 角色与空内容", async () => {
   await worker.fetch(
     chatRequest({

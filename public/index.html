@@ -35,6 +35,11 @@
             <select id="modelSel"></select>
           </div>
 
+          <div class="pill preset-pill" id="presetPill">
+            <label for="presetSel" class="model-label">预设</label>
+            <select id="presetSel"></select>
+          </div>
+
           <button class="iconbtn" id="personaToggle" title="😈=使用内置人物扮演 | 😇=不使用内置（网页自定义才生效）">😈</button>
           <button class="iconbtn" id="settingsBtn" title="Settings">⚙️</button>
         </div>
@@ -49,13 +54,20 @@
   </div>
 
   <div class="input-floating">
-    <div class="input-inner" id="composer">
-      <button class="attach-btn" id="uploadBtn" type="button" title="添加附件（txt / md / 代码 / Word 文档）">+</button>
-      <div class="composer-col">
-        <div id="attachments" class="attachments"></div>
-        <textarea id="msg" rows="1" placeholder="Message...（+ 可上传文本或 Word 文档）"></textarea>
+    <div class="composer-stack" id="composerStack">
+      <div id="undoBar">
+        <span id="undoText">已回退</span>
+        <button type="button" id="undoBtn">撤销</button>
+        <button type="button" id="undoClose" title="关闭">✕</button>
       </div>
-      <button id="sendBtn" type="button">Send</button>
+      <div class="input-inner" id="composer">
+        <button class="attach-btn" id="uploadBtn" type="button" title="添加附件（txt / md / 代码 / Word 文档）">+</button>
+        <div class="composer-col">
+          <div id="attachments" class="attachments"></div>
+          <textarea id="msg" rows="1" placeholder="Message...（+ 可上传文本或 Word 文档）"></textarea>
+        </div>
+        <button id="sendBtn" type="button">Send</button>
+      </div>
     </div>
     <input
       type="file"
@@ -117,6 +129,35 @@
           <div class="btns">
             <button class="smallbtn" id="savePrompt">保存</button>
             <button class="smallbtn" id="closeSettings">关闭</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>持续提示预设（Persistent Preset）</h4>
+        <p>
+          选中一个预设后，它的内容会作为 system 指令随<b>每一轮</b>请求一起发送，随时切换或关闭。<br>
+          与 😈/😇 无关，两种模式都生效；适合放「始终用中文」「输出用表格」「扮演某个角色」这类长期要求。
+        </p>
+
+        <div class="rowline">
+          <div class="toggle">
+            <input type="checkbox" id="presetKeep">
+            <label for="presetKeep">保留预设（本地保存）</label>
+          </div>
+          <div class="btns">
+            <button class="smallbtn" id="presetNew">新建</button>
+            <button class="smallbtn danger" id="presetDelete">删除当前</button>
+          </div>
+        </div>
+
+        <input id="presetName" class="preset-input" type="text" placeholder="预设名称，例如：中文表格模式" />
+        <textarea id="presetContent" placeholder="写下希望每轮都遵守的要求（可多行）"></textarea>
+
+        <div class="rowline">
+          <div class="hint" id="presetHint">未启用预设</div>
+          <div class="btns">
+            <button class="smallbtn" id="presetSave">保存预设</button>
           </div>
         </div>
       </div>

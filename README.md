@@ -8,8 +8,10 @@ Cloudflare Workers 上的极简 AI 聊天前端，把请求代理到 NVIDIA 的�
 - 流式输出 + 精确 token 统计（上游返回 usage 时显示 prompt/completion/speed，否则给出估算值）
 - 生成中可点 **停止** 中断（同时取消上游请求，避免继续计费）
 - 每条回复支持 **复制**；最后一条支持 **重新生成**（丢弃该条回复后重新请求，不会重复添加提问）
+- **一键回退**：用户消息和 AI 消息都能点「回退」，删掉该条及之后的所有消息；点用户消息会把原提问和附件放回输入区方便改了重发，误点还能「撤销」
 - 输入框 **+** 可上传文本文件（txt / md / 代码 / json / csv / 日志等）和 **Word 文档（.docx / .docm / .doc）**，正文会被提取后随消息发给模型
 - 😈 使用内置人格模板；😇 使用网页端自定义 system prompt
+- **持续提示预设**：顶栏下拉随时切换／关闭，选中的预设会随**每一轮**请求发送（😈/😇 都生效）。适合放「始终用中文」「输出用表格」「扮演某角色」这类长期要求；在设置里可新建、编辑、删除
 - 本地对话记忆与自定义模板分开存储，可分别清除
 - 打赏入口
 
@@ -48,6 +50,7 @@ wrangler deploy
 | 内置人格 | `src/config.js` → `PROMPT_1` ~ `PROMPT_4` |
 | 上下文条数/字数上限 | `src/worker.js` → `MAX_MESSAGES` / `MAX_TOTAL_CHARS` / `MAX_MESSAGE_CHARS` |
 | 限流 | `src/worker.js` → `RATE_MAX` / `RATE_WINDOW_MS` |
+| 持续预设长度 | `src/worker.js` → `MAX_PERSISTENT_PROMPT_CHARS`（默认 8000 字） |
 | 附件数量、体积与字数 | `public/app.js` → `MAX_FILES` / `MAX_FILE_BYTES` / `MAX_FILE_CHARS` / `MAX_TOTAL_ATTACH_CHARS` |
 | 允许的附件类型 | 文本：`public/app.js` → `TEXT_EXT`；Word：`public/docs.js` → `detectWordKind`；两处都要同步 `index.html` 的 `accept` |
 
@@ -68,9 +71,9 @@ NVIDIA_API_KEY=sk-xxx node dev-server.mjs
 ```bash
 npm i        # 只为测试装 jsdom，部署不需要
 npm test     # = 下面三条
-node test/run-tests.mjs    # 31 项：SSE 解析器 + Worker 路由/校验/裁剪/限流/524 重试
+node test/run-tests.mjs    # 36 项：SSE 解析器 + Worker 路由/校验/裁剪/限流/524 重试/持续预设
 node test/docs-test.mjs    # 23 项：docx / doc 正文提取（样本由 test/fixtures.mjs 现场构造）
-node test/dom-test.mjs     # 16 项：jsdom 里跑真实前端交互（发送/停止/重新生成/上传）
+node test/dom-test.mjs     # 21 项：jsdom 里跑真实前端交互（发送/停止/回退/撤销/预设/上传）
 ```
 
 ## 常见错误
@@ -98,6 +101,12 @@ node test/dom-test.mjs     # 16 项：jsdom 里跑真实前端交互（发送/�
 | 限流 | 60 次 / 分钟（单 isolate） | `RATE_MAX` |
 
 注意：附件正文最终仍受「单条消息 6 万字」约束——超出的部分会被截断并提示。
+
+## 关于持续预设
+
+预设内容会和内置人格（或 😇 的自定义模板）**合并成一条 system 消息**再发给上游——有些上游只认第一条 system，这样最稳。预设独立于 `custom_system_prompt`，互不覆盖；关掉下拉里的「不使用」就不会发送。
+
+回退是纯前端操作：删掉的只是浏览器里的会话，不会撤回已经发给上游的请求，也不会退还 token。撤销用的是内存快照，刷新页面后就失效了。
 
 ## 说明
 
