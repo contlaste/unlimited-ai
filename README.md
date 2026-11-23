@@ -46,7 +46,7 @@ wrangler deploy
 | 想改什么 | 改哪里 |
 |---|---|
 | 默认模型 | `src/config.js` → `DEFAULT_MODEL` |
-| 可选模型 | `src/config.js` → `MODELS`（`id` 必须存在于上游；`persona` 决定用哪份内置模板） |
+| 可选模型 | `src/config.js` → `MODELS`（`id` 必须存在于上游；`persona` 决定用哪份内置模板）。改完跑 `npm run check:models` 核对 |
 | 内置人格 | `src/config.js` → `PROMPT_1` ~ `PROMPT_4` |
 | 上下文条数/字数上限 | `src/worker.js` → `MAX_MESSAGES` / `MAX_TOTAL_CHARS` / `MAX_MESSAGE_CHARS` |
 | 限流 | `src/worker.js` → `RATE_MAX` / `RATE_WINDOW_MS` |
@@ -73,8 +73,16 @@ npm i        # 只为测试装 jsdom，部署不需要
 npm test     # = 下面三条
 node test/run-tests.mjs    # 36 项：SSE 解析器 + Worker 路由/校验/裁剪/限流/524 重试/持续预设
 node test/docs-test.mjs    # 23 项：docx / doc 正文提取（样本由 test/fixtures.mjs 现场构造）
-node test/dom-test.mjs     # 21 项：jsdom 里跑真实前端交互（发送/停止/回退/撤销/预设/上传）
+node test/dom-test.mjs     # 25 项：jsdom 里跑真实前端交互（发送/停止/回退/撤销/预设/上传）
 ```
+
+模型 ID 会随 NVIDIA 目录变动，另有一个**不需要 API key** 的体检脚本：
+
+```bash
+npm run check:models        # = node test/check-models.mjs
+```
+
+它会读取官方 `GET /v1/models`，逐个探测 `src/config.js` 里的 ID（401 = 可用、410 = 已下线、404 = ID 不存在），发现失效会以非零状态退出，方便挂到定时任务里。
 
 ## 常见错误
 
@@ -84,6 +92,7 @@ node test/dom-test.mjs     # 21 项：jsdom 里跑真实前端交互（发送/�
 | `请求失败（429）` | 本地限流（60 次/分钟）或上游限流 | 等一分钟；调 `src/worker.js` 的 `RATE_MAX` |
 | `上游拒绝访问（401/403）` | `NVIDIA_API_KEY` 无效或无该模型权限 | 重新 `wrangler secret put NVIDIA_API_KEY` |
 | `上游返回 400` | 消息格式或模型不支持（例如 `stream_options`） | 看响应体里的 detail |
+| `上游返回 410 Gone` | 该模型已被 NVIDIA 正式下线（EOL） | 跑 `npm run check:models`，把失效 ID 换成仍在目录里的模型 |
 | 上传提示「设了打开密码」 | 加密的 Office 文档会被存成 OLE 容器，不是 zip | 在 Word 里去掉打开密码后另存为 .docx |
 | 上传提示「无法识别…文件头 xx xx」 | 扩展名是假的（.doc 改名、下载到的是错误页） | 用 Word 打开后另存为 .docx；把提示里的文件头发我可进一步判断 |
 

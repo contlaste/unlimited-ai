@@ -2,15 +2,18 @@
 // =============================
 // ✨ 修改入口：把你要改的都集中在这里
 // =============================
-// 默认模型
-export const DEFAULT_MODEL = "openai/gpt-oss-120b";
+// 默认模型（必须是 NVIDIA NIM 当前仍在 /v1/models 目录里的 ID）
+export const DEFAULT_MODEL = "z-ai/glm-5.3-flash";
 
-// 模型列表（label 是下拉显示；persona=1 使用 PROMPT_1；persona=2 使用 PROMPT_2）
+// 模型列表（label 是下拉显示；persona=1..4 分别使用 PROMPT_1..PROMPT_4）
+// 注意：NVIDIA 会不定期下线模型（下线后调用会返回 410 Gone）。
+// 换 ID 前可用 GET https://integrate.api.nvidia.com/v1/models 核对，
+// 或直接跑 node test/check-models.mjs 自动检查。
 export const MODELS = [
-  { id: "deepseek-ai/deepseek-v4-pro-0813", label: "deepseek-v4-pro-0813", persona: 1 },
-  { id: "deepseek-ai/deepseek-v4.1-flash", label: "deepseek-v4.1-flash", persona: 2 },
-  { id: "z-ai/glm-5-3", label: "glm-5-3", persona: 3 },
-  { id: "nvidia/nemotron-3-ultra-550b-a55b", label: "nemotron-3-ultra-550b-a55b", persona: 4 },
+  { id: "z-ai/glm-5.3-flash",                      label: "glm-5.3-flash",          persona: 1 },
+  { id: "nvidia/nemotron-3.5-lightning-30b-a3b",    label: "nemotron-3.5-lightning", persona: 2 },
+  { id: "moonshotai/kimi-k3.1-pro",                 label: "kimi-k3.1-pro",          persona: 3 },
+  { id: "nvidia/nemotron-3-ultra-550b-a55b",        label: "nemotron-3-ultra",       persona: 4 },
 ];
 
 // 内置人物模板 #1（deepseek/glm）——不会下发到网页
