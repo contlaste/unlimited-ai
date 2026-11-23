@@ -14,6 +14,8 @@ export const MODELS = [
   { id: "nvidia/nemotron-3.5-lightning-30b-a3b",    label: "nemotron-3.5-lightning", persona: 2 },
   { id: "moonshotai/kimi-k3.1-pro",                 label: "kimi-k3.1-pro",          persona: 3 },
   { id: "nvidia/nemotron-3-ultra-550b-a55b",        label: "nemotron-3-ultra",       persona: 4 },
+  // 只有 4 份内置模板，第 5 个复用 PROMPT_1；想给它单独配一份就加 PROMPT_5 并在 worker.js 里接上
+  { id: "mistralai/mistral-large-4-1t-a52b",        label: "mistral-large-4-1t",     persona: 1 },
 ];
 
 // 内置人物模板 #1（deepseek/glm）——不会下发到网页

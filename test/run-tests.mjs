@@ -153,6 +153,17 @@ await ok("内置人格以 system 消息注入", () => {
   assert.equal(sent.messages[1].content, "hi");
 });
 
+await ok("新增的 Mistral 模型在白名单内且正常注入 system", async () => {
+  const id = "mistralai/mistral-large-4-1t-a52b";
+  assert.ok(MODELS.some((m) => m.id === id), "配置里应包含该模型");
+
+  await worker.fetch(chatRequest({ model: id, messages: [{ role: "user", content: "x" }] }), env);
+  const sent = JSON.parse(captured.init.body);
+  assert.equal(sent.model, id, "不应回落到 DEFAULT_MODEL");
+  assert.equal(sent.messages[0].role, "system");
+  assert.match(sent.messages[0].content, /Pyrite/);
+});
+
 await ok("非法模型回落到默认模型", async () => {
   await worker.fetch(chatRequest({ model: "not/a-model", messages: [{ role: "user", content: "x" }] }), env);
   assert.equal(JSON.parse(captured.init.body).model, DEFAULT_MODEL);

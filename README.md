@@ -71,7 +71,7 @@ NVIDIA_API_KEY=sk-xxx node dev-server.mjs
 ```bash
 npm i        # 只为测试装 jsdom，部署不需要
 npm test     # = 下面三条
-node test/run-tests.mjs    # 36 项：SSE 解析器 + Worker 路由/校验/裁剪/限流/524 重试/持续预设
+node test/run-tests.mjs    # 37 项：SSE 解析器 + Worker 路由/校验/裁剪/限流/524 重试/持续预设/模型白名单
 node test/docs-test.mjs    # 23 项：docx / doc 正文提取（样本由 test/fixtures.mjs 现场构造）
 node test/dom-test.mjs     # 25 项：jsdom 里跑真实前端交互（发送/停止/回退/撤销/预设/上传）
 ```
